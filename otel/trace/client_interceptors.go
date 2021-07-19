@@ -14,28 +14,27 @@ import (
 func ClientInterceptor(opts ...Option) (grpc.UnaryClientInterceptor, grpc.StreamClientInterceptor) {
 	o := defaultClientOptions()
 	o.apply(opts...)
-	return unaryClientInterceptor(o.tracer, o.propagator, o.contextFunc),
-		streamClientInterceptor(o.tracer, o.propagator, o.contextFunc)
+	return unaryClientInterceptor(o.tracer, o.propagator),
+		streamClientInterceptor(o.tracer, o.propagator)
 }
 
 // UnaryClientInterceptor returns a new unary client interceptor for otel trace.
 func UnaryClientInterceptor(opts ...Option) grpc.UnaryClientInterceptor {
 	o := defaultClientOptions()
 	o.apply(opts...)
-	return unaryClientInterceptor(o.tracer, o.propagator, o.contextFunc)
+	return unaryClientInterceptor(o.tracer, o.propagator)
 }
 
 // StreamClientInterceptor returns a new streaming client interceptor for otel trace.
 func StreamClientInterceptor(opts ...Option) grpc.StreamClientInterceptor {
 	o := defaultClientOptions()
 	o.apply(opts...)
-	return streamClientInterceptor(o.tracer, o.propagator, o.contextFunc)
+	return streamClientInterceptor(o.tracer, o.propagator)
 }
 
 func unaryClientInterceptor(
 	tracer trace.Tracer,
 	propagator propagation.TextMapPropagator,
-	contextFunc ContextFunc,
 ) grpc.UnaryClientInterceptor {
 	return func(
 		ctx context.Context,
@@ -47,7 +46,6 @@ func unaryClientInterceptor(
 		opts ...grpc.CallOption,
 	) error {
 		ctx, span := startSpan(ctx, tracer, propagator, method, trace.SpanKindClient)
-		ctx = contextFunc(ctx)
 		err := invoker(ctx, method, req, reply, cc, opts...)
 		endSpan(err, span)
 		return err
@@ -57,7 +55,6 @@ func unaryClientInterceptor(
 func streamClientInterceptor(
 	tracer trace.Tracer,
 	propagator propagation.TextMapPropagator,
-	contextFunc ContextFunc,
 ) grpc.StreamClientInterceptor {
 	return func(
 		ctx context.Context,
@@ -68,7 +65,6 @@ func streamClientInterceptor(
 		opts ...grpc.CallOption,
 	) (grpc.ClientStream, error) {
 		ctx, span := startSpan(ctx, tracer, propagator, method, trace.SpanKindClient)
-		ctx = contextFunc(ctx)
 		clientStream, err := streamer(ctx, desc, cc, method, opts...)
 		if err != nil {
 			endSpan(err, span)

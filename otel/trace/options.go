@@ -1,19 +1,14 @@
 package grpcoteltrace
 
 import (
-	"context"
-
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
-type ContextFunc func(ctx context.Context) context.Context
-
 type options struct {
-	tracer      trace.Tracer
-	propagator  propagation.TextMapPropagator
-	contextFunc ContextFunc
+	tracer     trace.Tracer
+	propagator propagation.TextMapPropagator
 }
 
 func (o *options) apply(opts ...Option) {
@@ -26,9 +21,8 @@ type Option func(o *options)
 
 func defaultClientOptions() *options {
 	return &options{
-		tracer:      otel.Tracer(""),
-		propagator:  otel.GetTextMapPropagator(),
-		contextFunc: func(ctx context.Context) context.Context { return ctx },
+		tracer:     otel.Tracer(""),
+		propagator: otel.GetTextMapPropagator(),
 	}
 }
 
@@ -41,11 +35,5 @@ func WithTracer(tracer trace.Tracer) Option {
 func WithPropagator(propagator propagation.TextMapPropagator) Option {
 	return func(o *options) {
 		o.propagator = propagator
-	}
-}
-
-func WithContextFunc(contextFunc ContextFunc) Option {
-	return func(o *options) {
-		o.contextFunc = contextFunc
 	}
 }

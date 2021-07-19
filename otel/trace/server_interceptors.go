@@ -14,28 +14,27 @@ import (
 func ServerInterceptor(opts ...Option) (grpc.UnaryServerInterceptor, grpc.StreamServerInterceptor) {
 	o := defaultClientOptions()
 	o.apply(opts...)
-	return unaryServerInterceptor(o.tracer, o.propagator, o.contextFunc),
-		streamServerInterceptor(o.tracer, o.propagator, o.contextFunc)
+	return unaryServerInterceptor(o.tracer, o.propagator),
+		streamServerInterceptor(o.tracer, o.propagator)
 }
 
 // UnaryServerInterceptor returns a new unary server interceptor for otel trace.
 func UnaryServerInterceptor(opts ...Option) grpc.UnaryServerInterceptor {
 	o := defaultClientOptions()
 	o.apply(opts...)
-	return unaryServerInterceptor(o.tracer, o.propagator, o.contextFunc)
+	return unaryServerInterceptor(o.tracer, o.propagator)
 }
 
 // StreamServerInterceptor returns a new streaming server interceptor for otel trace.
 func StreamServerInterceptor(opts ...Option) grpc.StreamServerInterceptor {
 	o := defaultClientOptions()
 	o.apply(opts...)
-	return streamServerInterceptor(o.tracer, o.propagator, o.contextFunc)
+	return streamServerInterceptor(o.tracer, o.propagator)
 }
 
 func unaryServerInterceptor(
 	tracer trace.Tracer,
 	propagator propagation.TextMapPropagator,
-	contextFunc ContextFunc,
 ) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
@@ -44,7 +43,6 @@ func unaryServerInterceptor(
 		handler grpc.UnaryHandler,
 	) (interface{}, error) {
 		ctx, span := startSpan(ctx, tracer, propagator, info.FullMethod, trace.SpanKindServer)
-		ctx = contextFunc(ctx)
 		resp, err := handler(ctx, req)
 		endSpan(err, span)
 		return resp, err
@@ -54,7 +52,6 @@ func unaryServerInterceptor(
 func streamServerInterceptor(
 	tracer trace.Tracer,
 	propagator propagation.TextMapPropagator,
-	streamHandlerFunc ContextFunc,
 ) grpc.StreamServerInterceptor {
 	return func(
 		srv interface{},
@@ -64,7 +61,6 @@ func streamServerInterceptor(
 	) error {
 		ctx := stream.Context()
 		ctx, span := startSpan(ctx, tracer, propagator, info.FullMethod, trace.SpanKindServer)
-		ctx = streamHandlerFunc(ctx)
 		streamWithTrace := &serverStreamWithTrace{ServerStream: stream, span: span, ctx: ctx}
 		err := handler(srv, streamWithTrace)
 		endSpan(err, span)
