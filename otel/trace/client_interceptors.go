@@ -2,32 +2,27 @@ package grpcoteltrace
 
 import (
 	"context"
-	"sync"
 
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 )
 
-// ClientInterceptor returns unary client and stream interceptors and for otel trace.
 func ClientInterceptor(opts ...Option) (grpc.UnaryClientInterceptor, grpc.StreamClientInterceptor) {
-	o := defaultClientOptions()
+	o := defaultOptions()
 	o.apply(opts...)
 	return unaryClientInterceptor(o.tracer, o.propagator),
 		streamClientInterceptor(o.tracer, o.propagator)
 }
 
-// UnaryClientInterceptor returns a new unary client interceptor for otel trace.
 func UnaryClientInterceptor(opts ...Option) grpc.UnaryClientInterceptor {
-	o := defaultClientOptions()
+	o := defaultOptions()
 	o.apply(opts...)
 	return unaryClientInterceptor(o.tracer, o.propagator)
 }
 
-// StreamClientInterceptor returns a new streaming client interceptor for otel trace.
 func StreamClientInterceptor(opts ...Option) grpc.StreamClientInterceptor {
-	o := defaultClientOptions()
+	o := defaultOptions()
 	o.apply(opts...)
 	return streamClientInterceptor(o.tracer, o.propagator)
 }
@@ -70,52 +65,6 @@ func streamClientInterceptor(
 			endSpan(err, span)
 			return nil, err
 		}
-		return &clientStreamWithTrace{ClientStream: clientStream, span: span}, nil
-	}
-}
-
-type clientStreamWithTrace struct {
-	grpc.ClientStream
-	span         trace.Span
-	mu           sync.Mutex
-	alreadyEnded bool
-}
-
-func (s *clientStreamWithTrace) Header() (metadata.MD, error) {
-	h, err := s.ClientStream.Header()
-	if err != nil {
-		s.endSpan(err)
-	}
-	return h, err
-}
-
-func (s *clientStreamWithTrace) SendMsg(m interface{}) error {
-	err := s.ClientStream.SendMsg(m)
-	if err != nil {
-		s.endSpan(err)
-	}
-	return err
-}
-
-func (s *clientStreamWithTrace) CloseSend() error {
-	err := s.ClientStream.CloseSend()
-	s.endSpan(err)
-	return err
-}
-
-func (s *clientStreamWithTrace) RecvMsg(m interface{}) error {
-	err := s.ClientStream.RecvMsg(m)
-	if err != nil {
-		s.endSpan(err)
-	}
-	return err
-}
-
-func (s *clientStreamWithTrace) endSpan(err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.alreadyEnded {
-		endSpan(err, s.span)
-		s.alreadyEnded = true
+		return clientStream, nil
 	}
 }

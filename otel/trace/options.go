@@ -19,7 +19,7 @@ func (o *options) apply(opts ...Option) {
 
 type Option func(o *options)
 
-func defaultClientOptions() *options {
+func defaultOptions() *options {
 	return &options{
 		tracer:     otel.Tracer(""),
 		propagator: otel.GetTextMapPropagator(),
