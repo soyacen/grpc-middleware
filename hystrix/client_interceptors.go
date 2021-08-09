@@ -40,7 +40,7 @@ func unaryClientInterceptor(commandName string, o *options) grpc.UnaryClientInte
 		invoker grpc.UnaryInvoker,
 		opts ...grpc.CallOption,
 	) (err error) {
-		err = hystrix.Do(commandName, func() error {
+		err = hystrix.DoC(ctx, commandName, func(ctx context.Context) error {
 			err = invoker(ctx, method, req, reply, cc, opts...)
 			if err != nil {
 				return err
