@@ -12,7 +12,7 @@ type options struct {
 	timeout                time.Duration
 	maxConcurrentRequests  int
 	requestVolumeThreshold int
-	sleepWindow            int
+	sleepWindow            time.Duration
 	errorPercentThreshold  int
 	fallbackFunc           func(ctx context.Context, err error) error
 	statsD                 *plugins.StatsdCollectorConfig
@@ -49,7 +49,7 @@ func WithRequestVolumeThreshold(requestVolumeThreshold int) Option {
 }
 
 // WithSleepWindow sets hystrix sleep window
-func WithSleepWindow(sleepWindow int) Option {
+func WithSleepWindow(sleepWindow time.Duration) Option {
 	return func(c *options) {
 		c.sleepWindow = sleepWindow
 	}

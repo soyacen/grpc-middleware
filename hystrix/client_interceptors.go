@@ -24,7 +24,7 @@ func UnaryClientInterceptor(commandName string, opts ...Option) grpc.UnaryClient
 		Timeout:                durationToInt(o.timeout, time.Millisecond),
 		MaxConcurrentRequests:  o.maxConcurrentRequests,
 		RequestVolumeThreshold: o.requestVolumeThreshold,
-		SleepWindow:            o.sleepWindow,
+		SleepWindow:            durationToInt(o.sleepWindow, time.Millisecond),
 		ErrorPercentThreshold:  o.errorPercentThreshold,
 	})
 	return unaryClientInterceptor(commandName, o)
