@@ -10,7 +10,7 @@ type fallbackFunc func(error) error
 
 // options is the hystrix client implementation
 type options struct {
-	hystrixTimeout         time.Duration
+	timeout                time.Duration
 	maxConcurrentRequests  int
 	requestVolumeThreshold int
 	sleepWindow            int
@@ -28,10 +28,10 @@ func (o *options) apply(opts ...Option) {
 // Option represents the hystrix client options
 type Option func(*options)
 
-// WithHystrixTimeout sets hystrix timeout
-func WithHystrixTimeout(timeout time.Duration) Option {
+// WithTimeout sets hystrix timeout
+func WithTimeout(timeout time.Duration) Option {
 	return func(c *options) {
-		c.hystrixTimeout = timeout
+		c.timeout = timeout
 	}
 }
 
@@ -91,7 +91,7 @@ const (
 func defaultOptions() *options {
 	return &options{
 		fallbackFunc:           nil,
-		hystrixTimeout:         defaultHystrixTimeout,
+		timeout:                defaultHystrixTimeout,
 		maxConcurrentRequests:  defaultMaxConcurrentRequests,
 		errorPercentThreshold:  defaultErrorPercentThreshold,
 		sleepWindow:            defaultSleepWindow,

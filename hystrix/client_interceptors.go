@@ -21,7 +21,7 @@ func UnaryClientInterceptor(commandName string, opts ...Option) grpc.UnaryClient
 		metricCollector.Registry.Register(c.NewStatsdCollector)
 	}
 	hystrix.ConfigureCommand(commandName, hystrix.CommandConfig{
-		Timeout:                durationToInt(o.hystrixTimeout, time.Millisecond),
+		Timeout:                durationToInt(o.timeout, time.Millisecond),
 		MaxConcurrentRequests:  o.maxConcurrentRequests,
 		RequestVolumeThreshold: o.requestVolumeThreshold,
 		SleepWindow:            o.sleepWindow,

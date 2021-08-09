@@ -6,7 +6,7 @@ import (
 	"github.com/sony/gobreaker"
 )
 
-// Option represents the hystrix client gobreaker.Settings
+// Option represents the gobreaker.Settings
 type Option func(*gobreaker.Settings)
 
 // WithMaxRequests sets MaxRequests.
