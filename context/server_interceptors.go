@@ -7,20 +7,20 @@ import (
 )
 
 func ServerInterceptor(opts ...Option) (grpc.UnaryServerInterceptor, grpc.StreamServerInterceptor) {
-	o := defaultClientOptions()
+	o := defaultOptions()
 	o.apply(opts...)
 	return unaryServerInterceptor(o.contextFunc),
 		streamServerInterceptor(o.contextFunc)
 }
 
 func UnaryServerInterceptor(opts ...Option) grpc.UnaryServerInterceptor {
-	o := defaultClientOptions()
+	o := defaultOptions()
 	o.apply(opts...)
 	return unaryServerInterceptor(o.contextFunc)
 }
 
 func StreamServerInterceptor(opts ...Option) grpc.StreamServerInterceptor {
-	o := defaultClientOptions()
+	o := defaultOptions()
 	o.apply(opts...)
 	return streamServerInterceptor(o.contextFunc)
 }

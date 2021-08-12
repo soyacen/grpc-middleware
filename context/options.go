@@ -18,7 +18,7 @@ func (o *options) apply(opts ...Option) {
 
 type Option func(o *options)
 
-func defaultClientOptions() *options {
+func defaultOptions() *options {
 	return &options{
 		contextFunc: func(ctx context.Context) context.Context { return ctx },
 	}

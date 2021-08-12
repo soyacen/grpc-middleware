@@ -7,19 +7,19 @@ import (
 )
 
 func ClientInterceptor(opts ...Option) (grpc.UnaryClientInterceptor, grpc.StreamClientInterceptor) {
-	o := defaultClientOptions()
+	o := defaultOptions()
 	o.apply(opts...)
 	return unaryClientInterceptor(o.contextFunc), streamClientInterceptor(o.contextFunc)
 }
 
 func UnaryClientInterceptor(opts ...Option) grpc.UnaryClientInterceptor {
-	o := defaultClientOptions()
+	o := defaultOptions()
 	o.apply(opts...)
 	return unaryClientInterceptor(o.contextFunc)
 }
 
 func StreamClientInterceptor(opts ...Option) grpc.StreamClientInterceptor {
-	o := defaultClientOptions()
+	o := defaultOptions()
 	o.apply(opts...)
 	return streamClientInterceptor(o.contextFunc)
 }
