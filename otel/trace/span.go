@@ -19,10 +19,12 @@ func startSpan(ctx context.Context,
 	kind trace.SpanKind,
 ) (context.Context, trace.Span) {
 	if kind == trace.SpanKindServer {
-		md, ok := metadata.FromOutgoingContext(ctx)
-		if ok {
-			ctx = propagator.Extract(ctx, MetaDataCarrier(md))
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			md = metadata.Pairs()
+			ctx = metadata.NewIncomingContext(ctx, md)
 		}
+		ctx = propagator.Extract(ctx, MetaDataCarrier(md))
 	}
 	ctx, span := tracer.Start(
 		ctx,
@@ -35,9 +37,12 @@ func startSpan(ctx context.Context,
 	)
 	if kind == trace.SpanKindClient {
 		md, ok := metadata.FromOutgoingContext(ctx)
-		if ok {
-			propagator.Inject(ctx, MetaDataCarrier(md))
+		if !ok {
+			md = metadata.Pairs()
+			ctx = metadata.NewOutgoingContext(ctx, md)
 		}
+		propagator.Inject(ctx, MetaDataCarrier(md))
+		md, ok = metadata.FromOutgoingContext(ctx)
 	}
 	return ctx, span
 }
