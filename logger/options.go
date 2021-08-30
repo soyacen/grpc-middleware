@@ -11,7 +11,7 @@ type Logger interface {
 type LoggerFactory func(ctx context.Context) Logger
 
 type options struct {
-	loggerFactory LoggerFactory
+	skip func(fullMethodName string, err error) bool
 }
 
 func (o *options) apply(opts ...Option) {
@@ -23,11 +23,15 @@ func (o *options) apply(opts ...Option) {
 type Option func(o *options)
 
 func defaultOptions() *options {
-	return &options{}
+	return &options{
+		skip: func(fullMethodName string, err error) bool {
+			return false
+		},
+	}
 }
 
-func WithLoggerFactory(loggerFactory LoggerFactory) Option {
+func WithSkip(skip func(fullMethodName string, err error) bool) Option {
 	return func(o *options) {
-		o.loggerFactory = loggerFactory
+		o.skip = skip
 	}
 }

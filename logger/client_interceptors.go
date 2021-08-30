@@ -7,25 +7,25 @@ import (
 	"google.golang.org/grpc"
 )
 
-func ClientInterceptor(opts ...Option) (grpc.UnaryClientInterceptor, grpc.StreamClientInterceptor) {
+func ClientInterceptor(loggerFactory LoggerFactory, opts ...Option) (grpc.UnaryClientInterceptor, grpc.StreamClientInterceptor) {
 	o := defaultOptions()
 	o.apply(opts...)
-	return unaryClientInterceptor(o), streamClientInterceptor(o)
+	return unaryClientInterceptor(loggerFactory, o), streamClientInterceptor(loggerFactory, o)
 }
 
-func UnaryClientInterceptor(opts ...Option) grpc.UnaryClientInterceptor {
+func UnaryClientInterceptor(loggerFactory LoggerFactory, opts ...Option) grpc.UnaryClientInterceptor {
 	o := defaultOptions()
 	o.apply(opts...)
-	return unaryClientInterceptor(o)
+	return unaryClientInterceptor(loggerFactory, o)
 }
 
-func StreamClientInterceptor(opts ...Option) grpc.StreamClientInterceptor {
+func StreamClientInterceptor(loggerFactory LoggerFactory, opts ...Option) grpc.StreamClientInterceptor {
 	o := defaultOptions()
 	o.apply(opts...)
-	return streamClientInterceptor(o)
+	return streamClientInterceptor(loggerFactory, o)
 }
 
-func unaryClientInterceptor(o *options) grpc.UnaryClientInterceptor {
+func unaryClientInterceptor(loggerFactory LoggerFactory, o *options) grpc.UnaryClientInterceptor {
 	return func(
 		ctx context.Context,
 		method string,
@@ -35,12 +35,14 @@ func unaryClientInterceptor(o *options) grpc.UnaryClientInterceptor {
 		invoker grpc.UnaryInvoker,
 		opts ...grpc.CallOption,
 	) error {
-		if o.loggerFactory == nil {
+		if loggerFactory == nil {
 			return invoker(ctx, method, req, reply, cc, opts...)
 		}
-		logger := o.loggerFactory(ctx)
 		startTime := time.Now()
 		err := invoker(ctx, method, req, reply, cc, opts...)
+		if o.skip(method, err) {
+			return err
+		}
 		builder := NewFieldBuilder().
 			Client().
 			StartTime(startTime).
@@ -50,12 +52,13 @@ func unaryClientInterceptor(o *options) grpc.UnaryClientInterceptor {
 			Status(err).
 			Error(err).
 			Latency(time.Since(startTime))
+		logger := loggerFactory(ctx)
 		logger.Log(builder.Build())
 		return err
 	}
 }
 
-func streamClientInterceptor(o *options) grpc.StreamClientInterceptor {
+func streamClientInterceptor(loggerFactory LoggerFactory, o *options) grpc.StreamClientInterceptor {
 	return func(
 		ctx context.Context,
 		desc *grpc.StreamDesc,
@@ -64,12 +67,14 @@ func streamClientInterceptor(o *options) grpc.StreamClientInterceptor {
 		streamer grpc.Streamer,
 		opts ...grpc.CallOption,
 	) (grpc.ClientStream, error) {
-		if o.loggerFactory == nil {
+		if loggerFactory == nil {
 			return streamer(ctx, desc, cc, method, opts...)
 		}
-		logger := o.loggerFactory(ctx)
 		startTime := time.Now()
 		clientStream, err := streamer(ctx, desc, cc, method, opts...)
+		if o.skip(method, err) {
+			return clientStream, err
+		}
 		builder := NewFieldBuilder().
 			Client().
 			StartTime(startTime).
@@ -79,6 +84,7 @@ func streamClientInterceptor(o *options) grpc.StreamClientInterceptor {
 			Status(err).
 			Error(err).
 			Latency(time.Since(startTime))
+		logger := loggerFactory(ctx)
 		logger.Log(builder.Build())
 		return clientStream, err
 	}
