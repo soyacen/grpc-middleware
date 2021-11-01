@@ -42,7 +42,6 @@ func startSpan(ctx context.Context,
 			ctx = metadata.NewOutgoingContext(ctx, md)
 		}
 		propagator.Inject(ctx, MetaDataCarrier(md))
-		md, ok = metadata.FromOutgoingContext(ctx)
 	}
 	return ctx, span
 }

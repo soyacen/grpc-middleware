@@ -11,10 +11,10 @@ require (
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
 	github.com/smartystreets/goconvey v1.6.4 // indirect
 	github.com/sony/gobreaker v0.4.1
-	go.opentelemetry.io/otel v1.0.1
-	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.0.1
-	go.opentelemetry.io/otel/sdk v1.0.1
-	go.opentelemetry.io/otel/trace v1.0.1
+	go.opentelemetry.io/otel v1.1.0
+	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.1.0
+	go.opentelemetry.io/otel/sdk v1.1.0
+	go.opentelemetry.io/otel/trace v1.1.0
 	golang.org/x/net v0.0.0-20211020060615-d418f374d309 // indirect
 	golang.org/x/sys v0.0.0-20211025201205-69cdffdb9359 // indirect
 	golang.org/x/text v0.3.7 // indirect
