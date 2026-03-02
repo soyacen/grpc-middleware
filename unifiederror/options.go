@@ -1,5 +1,5 @@
-// Package err 提供gRPC错误处理的配置选项
-package err
+// Package unifiederror 提供gRPC错误处理的配置选项
+package unifiederror
 
 import (
 	"context"

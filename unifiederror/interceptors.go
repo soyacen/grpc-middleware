@@ -1,6 +1,6 @@
-// Package er r 提供gRPC错误处理中间件功能
+// Package unifiederror 提供gRPC错误处理中间件功能
 // 用于统一处理和转换gRPC服务端的错误响应
-package err
+package unifiederror
 
 import (
 	"context"
