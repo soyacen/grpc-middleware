@@ -34,6 +34,8 @@ github.com/shirou/gopsutil/v4 v4.26.2 h1:X8i6sicvUFih4BmYIGT1m2wwgw2VG9YgrDTi7cI
 github.com/shirou/gopsutil/v4 v4.26.2/go.mod h1:LZ6ewCSkBqUpvSOf+LsTGnRinC6iaNUNMGBtDkJBaLQ=
 github.com/soyacen/gox v0.3.9 h1:jwHjNi1L7lsmIZjBawoSf+xEuBB5JCVZ+sea4iBoWpA=
 github.com/soyacen/gox v0.3.9/go.mod h1:ST3lYnYThgxA+ByY0r5c4qToOLc5upKPQtt1DkXnNSU=
+github.com/soyacen/gox v0.3.17 h1:IwqfD6kAdKVEjjBZOkFwef9rRiWu50llyRMqGeEiKlU=
+github.com/soyacen/gox v0.3.17/go.mod h1:ST3lYnYThgxA+ByY0r5c4qToOLc5upKPQtt1DkXnNSU=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/tklauser/go-sysconf v0.3.16 h1:frioLaCQSsF5Cy1jgRBrzr6t502KIIwQ0MArYICU0nA=

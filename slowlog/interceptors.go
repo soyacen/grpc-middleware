@@ -148,5 +148,5 @@ func StreamClientInterceptor(opts ...Option) grpc.StreamClientInterceptor {
 //   - method: 方法名
 //   - elapsed: 执行耗时
 func logSlowRequest(ctx context.Context, method string, elapsed time.Duration) {
-	slog.WarnContext(ctx, "Slow gRPC call", slog.Duration("duration", elapsed), slog.String("method", method))
+	slog.WarnContext(ctx, "Slow gRPC call", slog.String("duration", elapsed.String()), slog.String("method", method))
 }

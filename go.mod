@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/shirou/gopsutil/v4 v4.26.2
-	github.com/soyacen/gox v0.3.9
+	github.com/soyacen/gox v0.3.17
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.79.1
 )
