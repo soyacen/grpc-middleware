@@ -1,26 +1,12 @@
-// Package log 提供gRPC日志记录的配置选项
-package log
+// Package accesslog 提供gRPC日志记录的配置选项
+package accesslog
 
 import (
-	"context"
 	"log/slog"
 )
 
-// LoggerFactory 定义日志记录器工厂函数类型
-// 用于根据上下文创建特定的日志记录器实例
-//
-// 参数:
-//   - ctx: 可能包含创建日志记录器所需信息的上下文
-//
-// 返回值:
-//   - *slog.Logger: 日志记录器实例
-//   - error: 如果日志记录器创建失败则返回错误
-type LoggerFactory func(ctx context.Context) (*slog.Logger, error)
-
 // options 存储访问日志中间件的配置选项
 type options struct {
-	// loggerFactory 用于创建日志记录器的工厂函数
-	loggerFactory LoggerFactory
 	// level 访问日志条目的日志级别
 	level slog.Level
 	// skip 用于确定是否跳过日志记录的函数
@@ -50,26 +36,10 @@ type Option func(o *options)
 //   - *options: 包含默认选项的结构体指针
 func defaultOptions() *options {
 	return &options{
-		loggerFactory: func(_ context.Context) (*slog.Logger, error) {
-			return slog.Default(), nil
-		},
 		level: slog.LevelInfo,
 		skip: func(fullMethodName string, err error) bool {
 			return false
 		},
-	}
-}
-
-// WithLoggerFactory 设置日志记录器工厂函数
-//
-// 参数:
-//   - loggerFactory: 从上下文创建日志记录器的函数
-//
-// 返回值:
-//   - Option: 设置日志记录器工厂选项的函数
-func WithLoggerFactory(loggerFactory LoggerFactory) Option {
-	return func(o *options) {
-		o.loggerFactory = loggerFactory
 	}
 }
 

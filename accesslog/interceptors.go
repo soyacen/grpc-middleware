@@ -1,6 +1,6 @@
-// Package log 提供gRPC日志记录中间件功能
+// Package accesslog 提供gRPC日志记录中间件功能
 // 用于记录gRPC请求的访问日志，包括请求时间、延迟、状态码等信息
-package log
+package accesslog
 
 import (
 	"context"
@@ -30,15 +30,6 @@ func UnaryServerInterceptor(opts ...Option) grpc.UnaryServerInterceptor {
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
 	) (interface{}, error) {
-		if o.loggerFactory == nil {
-			return handler(ctx, req)
-		}
-		// Create a logger using the logger factory
-		logger, err := o.loggerFactory(ctx)
-		if err != nil {
-			slog.Error("log: failed to get logger", slog.String("error", err.Error()))
-			return handler(ctx, req)
-		}
 		startTime := time.Now()
 		resp, err := handler(ctx, req)
 		if o.skip(info.FullMethod, err) {
@@ -58,7 +49,7 @@ func UnaryServerInterceptor(opts ...Option) grpc.UnaryServerInterceptor {
 		if d, ok := ctx.Deadline(); ok {
 			fields = append(fields, slog.String("deadline", d.Format(time.RFC3339)))
 		}
-		logger.LogAttrs(ctx, o.level, info.FullMethod, fields...)
+		slog.LogAttrs(ctx, o.level, info.FullMethod, fields...)
 		// Reset the slice length to 0 to reuse the underlying array
 		fields = fields[:0]
 		// Put the slice back into the pool for reuse
@@ -93,22 +84,12 @@ func StreamServerInterceptor(opts ...Option) grpc.StreamServerInterceptor {
 		info *grpc.StreamServerInfo,
 		handler grpc.StreamHandler,
 	) error {
-		// 如果没有配置日志工厂，直接执行处理器
-		if o.loggerFactory == nil {
-			return handler(srv, stream)
-		}
 		// 获取流的上下文
 		ctx := stream.Context()
-		// 使用日志工厂创建日志记录器
-		logger, err := o.loggerFactory(ctx)
-		if err != nil {
-			slog.Error("log: failed to get logger", slog.String("error", err.Error()))
-			return handler(srv, stream)
-		}
 		// 记录开始时间
 		startTime := time.Now()
 		// 执行原始处理器
-		err = handler(srv, stream)
+		err := handler(srv, stream)
 		// 检查是否需要跳过日志记录
 		if o.skip(info.FullMethod, err) {
 			return err
@@ -132,7 +113,7 @@ func StreamServerInterceptor(opts ...Option) grpc.StreamServerInterceptor {
 			fields = append(fields, slog.String("deadline", d.Format(time.RFC3339)))
 		}
 		// 记录日志
-		logger.LogAttrs(ctx, o.level, info.FullMethod, fields...)
+		slog.LogAttrs(ctx, o.level, info.FullMethod, fields...)
 		// 重置切片长度以便复用
 		fields = fields[:0]
 		// 将切片放回池中
@@ -170,20 +151,10 @@ func UnaryClientInterceptor(opts ...Option) grpc.UnaryClientInterceptor {
 		invoker grpc.UnaryInvoker,
 		opts ...grpc.CallOption,
 	) error {
-		// 如果没有配置日志工厂，直接执行调用
-		if o.loggerFactory == nil {
-			return invoker(ctx, method, req, reply, cc, opts...)
-		}
-		// 使用日志工厂创建日志记录器
-		logger, err := o.loggerFactory(ctx)
-		if err != nil {
-			slog.Error("log: failed to get logger", slog.String("error", err.Error()))
-			return invoker(ctx, method, req, reply, cc, opts...)
-		}
 		// 记录开始时间
 		startTime := time.Now()
 		// 执行gRPC调用
-		err = invoker(ctx, method, req, reply, cc, opts...)
+		err := invoker(ctx, method, req, reply, cc, opts...)
 		// 检查是否需要跳过日志记录
 		if o.skip(method, err) {
 			return err
@@ -207,7 +178,7 @@ func UnaryClientInterceptor(opts ...Option) grpc.UnaryClientInterceptor {
 			fields = append(fields, slog.String("deadline", d.Format(time.RFC3339)))
 		}
 		// 记录日志
-		logger.LogAttrs(ctx, o.level, method, fields...)
+		slog.LogAttrs(ctx, o.level, method, fields...)
 		// 重置切片长度以便复用
 		fields = fields[:0]
 		// 将切片放回池中
@@ -244,16 +215,6 @@ func StreamClientInterceptor(opts ...Option) grpc.StreamClientInterceptor {
 		streamer grpc.Streamer,
 		opts ...grpc.CallOption,
 	) (grpc.ClientStream, error) {
-		// 如果没有配置日志工厂，直接执行流式调用
-		if o.loggerFactory == nil {
-			return streamer(ctx, desc, cc, method, opts...)
-		}
-		// 使用日志工厂创建日志记录器
-		logger, err := o.loggerFactory(ctx)
-		if err != nil {
-			slog.Error("log: failed to get logger", slog.String("error", err.Error()))
-			return streamer(ctx, desc, cc, method, opts...)
-		}
 		// 记录开始时间
 		startTime := time.Now()
 		// 执行流式gRPC调用
@@ -281,7 +242,7 @@ func StreamClientInterceptor(opts ...Option) grpc.StreamClientInterceptor {
 			fields = append(fields, slog.String("deadline", d.Format(time.RFC3339)))
 		}
 		// 记录日志
-		logger.LogAttrs(ctx, o.level, method, fields...)
+		slog.LogAttrs(ctx, o.level, method, fields...)
 		// 重置切片长度以便复用
 		fields = fields[:0]
 		// 将切片放回池中
