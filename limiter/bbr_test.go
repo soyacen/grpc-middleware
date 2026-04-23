@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/soyacen/grpc-middleware/internal/container"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -29,8 +30,8 @@ func TestBBR_Allow(t *testing.T) {
 				Buckets:      10,
 				CPUThreshold: 0.5,
 			},
-			passStat: newRollingCounter(time.Second, 10, false),
-			rtStat:   newRollingCounter(time.Second, 10, true),
+			passStat: container.NewRollingCounter(time.Second, 10, false),
+			rtStat:   container.NewRollingCounter(time.Second, 10, true),
 			cpu:      func() float64 { return 0.8 },
 		}
 
@@ -55,8 +56,8 @@ func TestBBR_Allow(t *testing.T) {
 				Buckets:      10,
 				CPUThreshold: 0.5,
 			},
-			passStat: newRollingCounter(time.Second, 10, false),
-			rtStat:   newRollingCounter(time.Second, 10, true),
+			passStat: container.NewRollingCounter(time.Second, 10, false),
+			rtStat:   container.NewRollingCounter(time.Second, 10, true),
 			cpu:      func() float64 { return 0.9 },
 		}
 
@@ -84,8 +85,8 @@ func TestBBR_Allow(t *testing.T) {
 	t.Run("done_callback_updates_stats", func(t *testing.T) {
 		l := &bbrLimiter{
 			conf:     defaultOptions().init(),
-			passStat: newRollingCounter(time.Second*10, 100, false),
-			rtStat:   newRollingCounter(time.Second*10, 100, true),
+			passStat: container.NewRollingCounter(time.Second*10, 100, false),
+			rtStat:   container.NewRollingCounter(time.Second*10, 100, true),
 			cpu:      func() float64 { return 0 },
 		}
 		done, err := l.Allow()
@@ -93,23 +94,23 @@ func TestBBR_Allow(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 		done(DoneInfo{Err: nil})
 
-		assert.GreaterOrEqual(t, l.passStat.Max(), int64(1))
-		assert.GreaterOrEqual(t, l.rtStat.Min(), int64(1))
+		assert.GreaterOrEqual(t, l.passStat.Max(time.Now()), int64(1))
+		assert.GreaterOrEqual(t, l.rtStat.Min(time.Now()), int64(1))
 	})
 
 	t.Run("done_callback_skips_stats_on_error", func(t *testing.T) {
 		l := &bbrLimiter{
 			conf:     defaultOptions().init(),
-			passStat: newRollingCounter(time.Second*10, 100, false),
-			rtStat:   newRollingCounter(time.Second*10, 100, true),
+			passStat: container.NewRollingCounter(time.Second*10, 100, false),
+			rtStat:   container.NewRollingCounter(time.Second*10, 100, true),
 			cpu:      func() float64 { return 0 },
 		}
-		initialMax := l.passStat.Max()
+		initialMax := l.passStat.Max(time.Now())
 		done, err := l.Allow()
 		assert.NoError(t, err)
 		done(DoneInfo{Err: fmt.Errorf("some error")})
 
-		assert.Equal(t, initialMax, l.passStat.Max())
+		assert.Equal(t, initialMax, l.passStat.Max(time.Now()))
 	})
 
 	t.Run("shouldDrop_cpu_below_threshold", func(t *testing.T) {
@@ -118,8 +119,8 @@ func TestBBR_Allow(t *testing.T) {
 				CPUThreshold: 0.8,
 				Buckets:      10,
 			},
-			passStat: newRollingCounter(time.Second, 10, false),
-			rtStat:   newRollingCounter(time.Second, 10, true),
+			passStat: container.NewRollingCounter(time.Second, 10, false),
+			rtStat:   container.NewRollingCounter(time.Second, 10, true),
 			cpu:      func() float64 { return 0.1 },
 		}
 		assert.False(t, l.shouldDrop())
@@ -131,67 +132,12 @@ func TestBBR_Allow(t *testing.T) {
 				CPUThreshold: 0.5,
 				Buckets:      10,
 			},
-			passStat: newRollingCounter(time.Second, 10, false),
-			rtStat:   newRollingCounter(time.Second, 10, true),
+			passStat: container.NewRollingCounter(time.Second, 10, false),
+			rtStat:   container.NewRollingCounter(time.Second, 10, true),
 			cpu:      func() float64 { return 1.0 },
 			inflight: 1,
 		}
 		assert.False(t, l.shouldDrop())
-	})
-}
-
-func TestRollingCounter(t *testing.T) {
-	t.Run("basic_add_and_max", func(t *testing.T) {
-		c := newRollingCounter(time.Millisecond*100, 10, false)
-		c.Add(10)
-		assert.Equal(t, int64(10), c.Max())
-	})
-
-	t.Run("rotation_expires_old_data", func(t *testing.T) {
-		c := newRollingCounter(time.Millisecond*100, 10, false)
-		c.Add(10)
-		time.Sleep(time.Millisecond * 150)
-		c.Add(5)
-		assert.Equal(t, int64(5), c.Max())
-	})
-
-	t.Run("min_tracking", func(t *testing.T) {
-		c := newRollingCounter(time.Millisecond*100, 10, true)
-		c.Add(100)
-		c.Add(50)
-		c.Add(200)
-		assert.Equal(t, int64(50), c.Min())
-	})
-
-	t.Run("min_returns_zero_when_empty", func(t *testing.T) {
-		c := newRollingCounter(time.Second, 10, true)
-		assert.Equal(t, int64(0), c.Min())
-	})
-
-	t.Run("max_returns_zero_when_empty", func(t *testing.T) {
-		c := newRollingCounter(time.Second, 10, false)
-		assert.Equal(t, int64(0), c.Max())
-	})
-
-	t.Run("stale_data_cleared_on_read", func(t *testing.T) {
-		c := newRollingCounter(time.Millisecond*50, 5, false)
-		c.Add(100)
-		time.Sleep(time.Millisecond * 300)
-		assert.Equal(t, int64(0), c.Max())
-	})
-
-	t.Run("concurrent_add", func(t *testing.T) {
-		c := newRollingCounter(time.Second, 100, false)
-		var wg sync.WaitGroup
-		for i := 0; i < 100; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				c.Add(1)
-			}()
-		}
-		wg.Wait()
-		assert.GreaterOrEqual(t, c.Max(), int64(1))
 	})
 }
 
@@ -355,8 +301,8 @@ func TestMaxInflight(t *testing.T) {
 				Window:  time.Second,
 				Buckets: 10,
 			},
-			passStat: newRollingCounter(time.Second, 10, false),
-			rtStat:   newRollingCounter(time.Second, 10, true),
+			passStat: container.NewRollingCounter(time.Second, 10, false),
+			rtStat:   container.NewRollingCounter(time.Second, 10, true),
 		}
 		assert.Equal(t, float64(10), l.maxInflight())
 	})
@@ -367,12 +313,12 @@ func TestMaxInflight(t *testing.T) {
 				Window:  time.Second,
 				Buckets: 10,
 			},
-			passStat: newRollingCounter(time.Second, 10, false),
-			rtStat:   newRollingCounter(time.Second, 10, true),
+			passStat: container.NewRollingCounter(time.Second, 10, false),
+			rtStat:   container.NewRollingCounter(time.Second, 10, true),
 		}
 		for i := 0; i < 10; i++ {
-			l.passStat.Add(5)
-			l.rtStat.Add(10)
+			l.passStat.Add(time.Now(), 5)
+			l.rtStat.Add(time.Now(), 10)
 		}
 		result := l.maxInflight()
 		assert.Greater(t, result, float64(0))
@@ -383,8 +329,8 @@ func TestConcurrentLimiter(t *testing.T) {
 	t.Run("concurrent_allow_does_not_race", func(t *testing.T) {
 		l := &bbrLimiter{
 			conf:     defaultOptions().init(),
-			passStat: newRollingCounter(time.Second*10, 100, false),
-			rtStat:   newRollingCounter(time.Second*10, 100, true),
+			passStat: container.NewRollingCounter(time.Second*10, 100, false),
+			rtStat:   container.NewRollingCounter(time.Second*10, 100, true),
 			cpu:      func() float64 { return 0 },
 		}
 		var wg sync.WaitGroup

@@ -1,11 +1,10 @@
 package limiter
 
 import (
-	"math"
-	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/soyacen/grpc-middleware/internal/container"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -146,8 +145,8 @@ func (o *options) apply(opts ...Option) *options {
 func (o *options) newLimiter() Limiter {
 	return &bbrLimiter{
 		conf:     o,
-		passStat: newRollingCounter(o.Window, o.Buckets, false),
-		rtStat:   newRollingCounter(o.Window, o.Buckets, true),
+		passStat: container.NewRollingCounter(o.Window, o.Buckets, false),
+		rtStat:   container.NewRollingCounter(o.Window, o.Buckets, true),
 		cpu:      o.CPU,
 	}
 }
@@ -176,8 +175,8 @@ type bbrLimiter struct {
 	inflight int64
 
 	// metrics for the BBR algorithm
-	passStat *rollingCounter // 通过请求数统计
-	rtStat   *rollingCounter // 响应时间统计
+	passStat *container.RollingCounter // 通过请求数统计
+	rtStat   *container.RollingCounter // 响应时间统计
 
 	// lastDrop 上次丢弃请求的时间
 	lastDrop atomic.Pointer[time.Time]
@@ -207,8 +206,9 @@ func (l *bbrLimiter) Allow() (func(DoneInfo), error) {
 
 		// 如果请求成功，更新统计信息
 		if info.Err == nil {
-			l.passStat.Add(1) // 增加成功请求数
-			l.rtStat.Add(rt)  // 记录响应时间
+			now := time.Now()
+			l.passStat.Add(now, 1) // 增加成功请求数
+			l.rtStat.Add(now, rt)  // 记录响应时间
 		}
 	}, nil
 }
@@ -254,8 +254,9 @@ func (l *bbrLimiter) shouldDrop() bool {
 // maxInflight 计算最大允许并发请求数
 // 基于BBR算法：max_inflight = max_pass * min_rt
 func (l *bbrLimiter) maxInflight() float64 {
-	maxPass := l.passStat.Max()
-	minRT := l.rtStat.Min()
+	now := time.Now()
+	maxPass := l.passStat.Max(now)
+	minRT := l.rtStat.Min(now)
 
 	if maxPass <= 0 || minRT <= 0 {
 		return float64(l.conf.Buckets)
@@ -263,134 +264,4 @@ func (l *bbrLimiter) maxInflight() float64 {
 
 	bucketDuration := float64(l.conf.Window) / float64(l.conf.Buckets) / float64(time.Second)
 	return float64(maxPass) * float64(minRT) / 1000.0 / bucketDuration
-}
-
-// rollingCounter 简化的滑动窗口统计器
-// 用于在固定时间窗口内统计各种指标
-type rollingCounter struct {
-	// mu 读写锁，保证并发安全
-	mu sync.RWMutex
-
-	// buckets 时间桶数组
-	buckets []int64
-
-	// window 总时间窗口大小
-	window time.Duration
-
-	// bucketDur 每个桶的时间长度
-	bucketDur time.Duration
-
-	// lastUpdate 上次更新时间
-	lastUpdate time.Time
-
-	// isMin 是否跟踪最小值（否则跟踪总和）
-	isMin bool
-}
-
-// newRollingCounter 创建新的滚动计数器实例
-// 参数:
-//   - window: 总时间窗口
-//   - buckets: 桶数量
-//   - isMin: 是否记录每个桶的最小值
-func newRollingCounter(window time.Duration, buckets int, isMin bool) *rollingCounter {
-	rc := &rollingCounter{
-		buckets:    make([]int64, buckets),
-		window:     window,
-		bucketDur:  window / time.Duration(buckets),
-		lastUpdate: time.Now(),
-		isMin:      isMin,
-	}
-	if isMin {
-		for i := range rc.buckets {
-			rc.buckets[i] = math.MaxInt64
-		}
-	}
-	return rc
-}
-
-// Add 向统计器中添加数值
-func (c *rollingCounter) Add(val int64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	now := time.Now()
-	c.rotateAt(now)
-
-	idx := (now.UnixNano() / int64(c.bucketDur)) % int64(len(c.buckets))
-	if c.isMin {
-		if val < c.buckets[idx] {
-			c.buckets[idx] = val
-		}
-	} else {
-		c.buckets[idx] += val
-	}
-}
-
-// rotateAt 执行桶轮转操作，使用给定的时间点
-func (c *rollingCounter) rotateAt(now time.Time) {
-	if now.Sub(c.lastUpdate) < c.bucketDur {
-		return
-	}
-
-	elapsed := now.Sub(c.lastUpdate)
-	numToClear := int(elapsed / c.bucketDur)
-	if numToClear > len(c.buckets) {
-		numToClear = len(c.buckets)
-	}
-
-	lastIdx := (c.lastUpdate.UnixNano() / int64(c.bucketDur)) % int64(len(c.buckets))
-	for i := 1; i <= numToClear; i++ {
-		idx := (lastIdx + int64(i)) % int64(len(c.buckets))
-		if c.isMin {
-			c.buckets[idx] = math.MaxInt64
-		} else {
-			c.buckets[idx] = 0
-		}
-	}
-
-	c.lastUpdate = now
-}
-
-// Max 获取所有桶中的最大值
-func (c *rollingCounter) Max() int64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.rotateAt(time.Now())
-
-	var max int64
-	for _, v := range c.buckets {
-		if !c.isMin {
-			if v > max {
-				max = v
-			}
-		} else {
-			if v != math.MaxInt64 && v > max {
-				max = v
-			}
-		}
-	}
-	return max
-}
-
-// Min 获取所有桶中的最小正值
-func (c *rollingCounter) Min() int64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.rotateAt(time.Now())
-
-	var min int64 = math.MaxInt64
-	var found bool
-	for _, v := range c.buckets {
-		if v > 0 && v != math.MaxInt64 {
-			if v < min {
-				min = v
-			}
-			found = true
-		}
-	}
-
-	if !found {
-		return 0
-	}
-	return min
 }
