@@ -7,20 +7,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-// UnaryServerInterceptor 创建基于BBR算法的gRPC服务端一元调用拦截器
-// 该拦截器在每个一元RPC调用前检查是否允许执行，实现自适应限流
-//
-// 参数:
-//   - opts: 可选的配置选项，用于自定义限流器行为
-//
-// 返回:
-//   - grpc.UnaryServerInterceptor: gRPC服务端一元调用拦截器函数
-//
-// 工作原理:
-// 1. 在每次请求到达时调用 limiter.Allow() 检查是否允许执行
-// 2. 如果不允许执行，直接返回限流错误
-// 3. 如果允许执行，继续处理请求
-// 4. 请求完成后调用 done() 回调函数更新统计信息
+// UnaryServerInterceptor 创建一元调用的服务端限流拦截器
 func UnaryServerInterceptor(opts ...Option) grpc.UnaryServerInterceptor {
 	o := defaultOptions().apply(opts...).init()
 	limiter := o.newRateLimiter()
@@ -52,20 +39,7 @@ func UnaryServerInterceptor(opts ...Option) grpc.UnaryServerInterceptor {
 	}
 }
 
-// StreamServerInterceptor 创建基于BBR算法的gRPC服务端流式调用拦截器
-// 该拦截器在每个流式RPC调用前检查是否允许执行，实现自适应限流
-//
-// 参数:
-//   - opts: 可选的配置选项，用于自定义限流器行为
-//
-// 返回:
-//   - grpc.StreamServerInterceptor: gRPC服务端流式调用拦截器函数
-//
-// 工作原理:
-// 1. 在流式调用建立时检查是否允许执行
-// 2. 如果不允许执行，直接返回限流错误
-// 3. 如果允许执行，建立流式连接
-// 4. 流式调用结束时调用 done() 回调函数更新统计信息
+// StreamServerInterceptor 创建流式调用的服务端限流拦截器
 func StreamServerInterceptor(opts ...Option) grpc.StreamServerInterceptor {
 	o := defaultOptions().apply(opts...).init()
 	limiter := o.newRateLimiter()

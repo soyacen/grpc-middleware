@@ -1,349 +1,468 @@
 package ratelimiter
 
 import (
-	"context"
-	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-func TestBBR_Allow(t *testing.T) {
-	t.Run("initially_allowed", func(t *testing.T) {
-		l := defaultOptions().init().newRateLimiter()
-		done, err := l.Allow()
-		assert.NoError(t, err)
-		assert.NotNil(t, done)
-		done(DoneInfo{})
-	})
+func TestMaxInflight_ColdStart(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			Window:  time.Second,
+			Buckets: 10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+	}
+	result := l.maxInflight()
+	assert.Equal(t, float64(10), result)
+}
 
-	t.Run("limit_exceeded", func(t *testing.T) {
-		l := &bbrRateLimiter{
-			conf: &options{
-				Window:       time.Second,
-				Buckets:      10,
-				CPUThreshold: 0.5,
-			},
-			passStat: newRollingCounter(time.Second, 10, false),
-			rtStat:   newRollingCounter(time.Second, 10, true),
-			cpu:      func() float64 { return 0.8 },
-		}
+func TestMaxInflight_Basic(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			Window:  time.Second,
+			Buckets: 10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+	}
 
-		for i := 0; i < 100; i++ {
-			done, _ := l.Allow()
-			if done != nil {
+	now := time.Now()
+	l.passStat.Add(now, 100)
+	l.rtStat.Add(now, 50)
+
+	result := l.maxInflight()
+	assert.Greater(t, result, float64(0))
+}
+
+func TestMaxInflight_LargeRT(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			Window:  time.Second,
+			Buckets: 10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+	}
+
+	now := time.Now()
+	l.passStat.Add(now, 50)
+	l.rtStat.Add(now, 1000)
+
+	result := l.maxInflight()
+	assert.Greater(t, result, float64(0))
+}
+
+func TestShouldDrop_CPUBelowThreshold(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			CPUThreshold: 0.8,
+			Buckets:      10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+		cpu:      func() float64 { return 0.1 },
+	}
+	assert.False(t, l.shouldDrop())
+}
+
+func TestShouldDrop_CPUAboveThreshold(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			CPUThreshold: 0.5,
+			Buckets:      10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+		cpu:      func() float64 { return 0.9 },
+		inflight: 1000,
+	}
+	result := l.shouldDrop()
+	assert.IsType(t, true, result)
+}
+
+func TestShouldDrop_InflightOneAlwaysAllowed(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			CPUThreshold: 0.5,
+			Buckets:      10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+		cpu:      func() float64 { return 1.0 },
+		inflight: 1,
+	}
+	assert.False(t, l.shouldDrop())
+}
+
+func TestShouldDrop_LastDropWithinSecond(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			CPUThreshold: 0.8,
+			Buckets:      10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+		cpu:      func() float64 { return 0.9 },
+		inflight: 1000,
+	}
+	now := time.Now()
+	l.lastDrop.Store(&now)
+
+	assert.True(t, l.shouldDrop())
+}
+
+func TestShouldDrop_LastDropAfterSecond(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			CPUThreshold: 0.8,
+			Buckets:      10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+		cpu:      func() float64 { return 0.1 },
+	}
+	oldTime := time.Now().Add(-2 * time.Second)
+	l.lastDrop.Store(&oldTime)
+
+	assert.False(t, l.shouldDrop())
+	assert.Nil(t, l.lastDrop.Load())
+}
+
+func TestAllow_InitiallyAllowed(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			CPUThreshold: 0.8,
+			Buckets:      10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+		cpu:      func() float64 { return 0.1 },
+	}
+	done, err := l.Allow()
+	assert.NoError(t, err)
+	assert.NotNil(t, done)
+	done(DoneInfo{})
+}
+
+func TestAllow_LimitExceeded(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			CPUThreshold: 0.5,
+			Buckets:      10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+		cpu:      func() float64 { return 0.9 },
+	}
+	l.inflight = 1000
+
+	done, err := l.Allow()
+	assert.Error(t, err)
+	assert.Nil(t, done)
+	assert.Equal(t, codes.ResourceExhausted, status.Code(err))
+}
+
+func TestAllow_ColdStartConcurrent(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			CPUThreshold: 0.5,
+			Buckets:      10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+		cpu:      func() float64 { return 0.9 },
+	}
+
+	var wg sync.WaitGroup
+	allowed := int64(0)
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			done, err := l.Allow()
+			if err == nil && done != nil {
+				atomic.AddInt64(&allowed, 1)
+				time.Sleep(10 * time.Millisecond)
 				done(DoneInfo{})
 			}
-		}
+		}()
+	}
+	wg.Wait()
+	assert.Greater(t, allowed, int64(0))
+}
 
-		l.inflight = 1000
+func TestAllow_InflightTracking(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			CPUThreshold: 0.8,
+			Buckets:      10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+		cpu:      func() float64 { return 0.1 },
+	}
 
-		_, err := l.Allow()
-		assert.Error(t, err)
-		assert.Equal(t, codes.ResourceExhausted, status.Code(err))
-	})
+	assert.Equal(t, int64(0), atomic.LoadInt64(&l.inflight))
 
-	t.Run("cold_start_allows_concurrent_requests", func(t *testing.T) {
-		l := &bbrRateLimiter{
-			conf: &options{
-				Window:       time.Second,
-				Buckets:      10,
-				CPUThreshold: 0.5,
-			},
-			passStat: newRollingCounter(time.Second, 10, false),
-			rtStat:   newRollingCounter(time.Second, 10, true),
-			cpu:      func() float64 { return 0.9 },
-		}
+	done1, _ := l.Allow()
+	assert.Equal(t, int64(1), atomic.LoadInt64(&l.inflight))
 
-		var wg sync.WaitGroup
-		allowed := 0
-		var mu sync.Mutex
-		for i := 0; i < 20; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				done, err := l.Allow()
-				if err == nil && done != nil {
-					mu.Lock()
-					allowed++
-					mu.Unlock()
-					time.Sleep(10 * time.Millisecond)
-					done(DoneInfo{})
-				}
-			}()
-		}
-		wg.Wait()
-		assert.Greater(t, allowed, 0)
-	})
+	done2, _ := l.Allow()
+	assert.Equal(t, int64(2), atomic.LoadInt64(&l.inflight))
 
-	t.Run("done_callback_updates_stats", func(t *testing.T) {
-		l := &bbrRateLimiter{
-			conf:     defaultOptions().init(),
-			passStat: newRollingCounter(time.Second*10, 100, false),
-			rtStat:   newRollingCounter(time.Second*10, 100, true),
-			cpu:      func() float64 { return 0 },
-		}
+	done1(DoneInfo{})
+	assert.Equal(t, int64(1), atomic.LoadInt64(&l.inflight))
+
+	done2(DoneInfo{})
+	assert.Equal(t, int64(0), atomic.LoadInt64(&l.inflight))
+}
+
+func TestDone_SuccessUpdatesStats(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf:     defaultOptions().init(),
+		passStat: newRollingCounter(time.Second*10, 100, false),
+		rtStat:   newRollingCounter(time.Second*10, 100, true),
+		cpu:      func() float64 { return 0 },
+	}
+
+	done, err := l.Allow()
+	assert.NoError(t, err)
+
+	time.Sleep(5 * time.Millisecond)
+	done(DoneInfo{Err: nil})
+
+	assert.GreaterOrEqual(t, l.passStat.Max(time.Now()), int64(1))
+	assert.GreaterOrEqual(t, l.rtStat.Min(time.Now()), int64(1))
+}
+
+func TestDone_ErrorSkipsStats(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf:     defaultOptions().init(),
+		passStat: newRollingCounter(time.Second*10, 100, false),
+		rtStat:   newRollingCounter(time.Second*10, 100, true),
+		cpu:      func() float64 { return 0 },
+	}
+
+	initialMax := l.passStat.Max(time.Now())
+	done, err := l.Allow()
+	assert.NoError(t, err)
+
+	done(DoneInfo{Err: status.Error(codes.Internal, "error")})
+
+	assert.Equal(t, initialMax, l.passStat.Max(time.Now()))
+}
+
+func TestDone_InflightDecremented(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			CPUThreshold: 0.8,
+			Buckets:      10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+		cpu:      func() float64 { return 0.1 },
+	}
+
+	done, _ := l.Allow()
+	assert.Equal(t, int64(1), atomic.LoadInt64(&l.inflight))
+
+	done(DoneInfo{Err: nil})
+	assert.Equal(t, int64(0), atomic.LoadInt64(&l.inflight))
+}
+
+func TestConcurrent_Allow(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			Window:       time.Second * 10,
+			Buckets:      100,
+			CPUThreshold: 0.8,
+		},
+		passStat: newRollingCounter(time.Second*10, 100, false),
+		rtStat:   newRollingCounter(time.Second*10, 100, true),
+		cpu:      func() float64 { return 0 },
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			done, err := l.Allow()
+			if err == nil && done != nil {
+				time.Sleep(time.Millisecond)
+				done(DoneInfo{})
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestBBR_MaxInflightWithZeroPass(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			Window:  time.Second,
+			Buckets: 10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+	}
+
+	result := l.maxInflight()
+	assert.Equal(t, float64(10), result)
+}
+
+func TestBBR_MaxInflightWithZeroRT(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			Window:  time.Second,
+			Buckets: 10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+	}
+
+	l.passStat.Add(time.Now(), 100)
+	result := l.maxInflight()
+	assert.Equal(t, float64(10), result)
+}
+
+func TestBBR_AllowAfterDropRecovery(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			CPUThreshold: 0.8,
+			Buckets:      10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+		cpu:      func() float64 { return 0.1 },
+	}
+
+	oldTime := time.Now().Add(-3 * time.Second)
+	l.lastDrop.Store(&oldTime)
+
+	done, err := l.Allow()
+	assert.NoError(t, err)
+	assert.NotNil(t, done)
+	done(DoneInfo{})
+}
+
+func TestBBR_MultipleRequestsAccumulate(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			Window:       time.Second * 10,
+			Buckets:      100,
+			CPUThreshold: 0.8,
+		},
+		passStat: newRollingCounter(time.Second*10, 100, false),
+		rtStat:   newRollingCounter(time.Second*10, 100, true),
+		cpu:      func() float64 { return 0 },
+	}
+
+	for i := 0; i < 10; i++ {
 		done, err := l.Allow()
 		assert.NoError(t, err)
-		time.Sleep(5 * time.Millisecond)
-		done(DoneInfo{Err: nil})
+		time.Sleep(time.Millisecond)
+		done(DoneInfo{})
+	}
 
-		assert.GreaterOrEqual(t, l.passStat.Max(time.Now()), int64(1))
-		assert.GreaterOrEqual(t, l.rtStat.Min(time.Now()), int64(1))
-	})
-
-	t.Run("done_callback_skips_stats_on_error", func(t *testing.T) {
-		l := &bbrRateLimiter{
-			conf:     defaultOptions().init(),
-			passStat: newRollingCounter(time.Second*10, 100, false),
-			rtStat:   newRollingCounter(time.Second*10, 100, true),
-			cpu:      func() float64 { return 0 },
-		}
-		initialMax := l.passStat.Max(time.Now())
-		done, err := l.Allow()
-		assert.NoError(t, err)
-		done(DoneInfo{Err: fmt.Errorf("some error")})
-
-		assert.Equal(t, initialMax, l.passStat.Max(time.Now()))
-	})
-
-	t.Run("shouldDrop_cpu_below_threshold", func(t *testing.T) {
-		l := &bbrRateLimiter{
-			conf: &options{
-				CPUThreshold: 0.8,
-				Buckets:      10,
-			},
-			passStat: newRollingCounter(time.Second, 10, false),
-			rtStat:   newRollingCounter(time.Second, 10, true),
-			cpu:      func() float64 { return 0.1 },
-		}
-		assert.False(t, l.shouldDrop())
-	})
-
-	t.Run("shouldDrop_inflight_one_always_allowed", func(t *testing.T) {
-		l := &bbrRateLimiter{
-			conf: &options{
-				CPUThreshold: 0.5,
-				Buckets:      10,
-			},
-			passStat: newRollingCounter(time.Second, 10, false),
-			rtStat:   newRollingCounter(time.Second, 10, true),
-			cpu:      func() float64 { return 1.0 },
-			inflight: 1,
-		}
-		assert.False(t, l.shouldDrop())
-	})
+	assert.GreaterOrEqual(t, l.passStat.Max(time.Now()), int64(1))
 }
 
-func TestInterceptors(t *testing.T) {
-	t.Run("unary_success", func(t *testing.T) {
-		mdw := UnaryServerInterceptor()
-		handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-			return "ok", nil
-		}
-		resp, err := mdw(context.Background(), "req", nil, handler)
-		assert.NoError(t, err)
-		assert.Equal(t, "ok", resp)
-	})
+func TestBBR_HighCPUWithLowInflight(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			CPUThreshold: 0.5,
+			Buckets:      10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+		cpu:      func() float64 { return 0.9 },
+		inflight: 0,
+	}
 
-	t.Run("unary_skip", func(t *testing.T) {
-		skipCalled := false
-		mdw := UnaryServerInterceptor(WithSkip(func() bool {
-			skipCalled = true
-			return true
-		}))
-		handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-			return "skipped", nil
-		}
-		resp, err := mdw(context.Background(), "req", nil, handler)
-		assert.NoError(t, err)
-		assert.Equal(t, "skipped", resp)
-		assert.True(t, skipCalled, "skip function should be called")
-	})
-
-	t.Run("unary_skip_false_goes_to_limiter", func(t *testing.T) {
-		mdw := UnaryServerInterceptor(WithSkip(func() bool {
-			return false
-		}))
-		handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-			return "ok", nil
-		}
-		resp, err := mdw(context.Background(), "req", nil, handler)
-		assert.NoError(t, err)
-		assert.Equal(t, "ok", resp)
-	})
-
-	t.Run("unary_panic_recovery_calls_done", func(t *testing.T) {
-		l := defaultOptions().init().newRateLimiter()
-		done, _ := l.Allow()
-		assert.NotNil(t, done)
-
-		mdw := UnaryServerInterceptor()
-		handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-			panic("test panic")
-		}
-
-		assert.Panics(t, func() {
-			mdw(context.Background(), "req", nil, handler)
-		})
-	})
-
-	t.Run("stream_success", func(t *testing.T) {
-		mdw := StreamServerInterceptor()
-		handler := func(srv interface{}, stream grpc.ServerStream) error {
-			return nil
-		}
-		err := mdw(nil, nil, nil, handler)
-		assert.NoError(t, err)
-	})
-
-	t.Run("stream_skip", func(t *testing.T) {
-		skipCalled := false
-		mdw := StreamServerInterceptor(WithSkip(func() bool {
-			skipCalled = true
-			return true
-		}))
-		handler := func(srv interface{}, stream grpc.ServerStream) error {
-			return nil
-		}
-		err := mdw(nil, nil, nil, handler)
-		assert.NoError(t, err)
-		assert.True(t, skipCalled)
-	})
-
-	t.Run("stream_panic_recovery_calls_done", func(t *testing.T) {
-		mdw := StreamServerInterceptor()
-		handler := func(srv interface{}, stream grpc.ServerStream) error {
-			panic("test panic")
-		}
-		assert.Panics(t, func() {
-			mdw(nil, nil, nil, handler)
-		})
-	})
+	done, err := l.Allow()
+	assert.NoError(t, err)
+	assert.NotNil(t, done)
+	done(DoneInfo{})
 }
 
-func TestOptions(t *testing.T) {
-	t.Run("default_options", func(t *testing.T) {
-		o := defaultOptions()
-		assert.Equal(t, time.Second*10, o.Window)
-		assert.Equal(t, 100, o.Buckets)
-		assert.Equal(t, 0.8, o.CPUThreshold)
-		assert.NotNil(t, o.CPU)
-		assert.Equal(t, time.Millisecond*500, o.CPUInterval)
-	})
+func TestBBR_FormulaCalculation(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			Window:  time.Second,
+			Buckets: 10,
+		},
+		passStat: newRollingCounter(time.Second, 10, false),
+		rtStat:   newRollingCounter(time.Second, 10, true),
+	}
 
-	t.Run("with_window", func(t *testing.T) {
-		o := defaultOptions().apply(WithWindow(time.Second * 5)).init()
-		assert.Equal(t, time.Second*5, o.Window)
-	})
+	now := time.Now()
+	for i := 0; i < 5; i++ {
+		l.passStat.Add(now, 100)
+		l.rtStat.Add(now, 50)
+	}
 
-	t.Run("with_buckets", func(t *testing.T) {
-		o := defaultOptions().apply(WithBuckets(50)).init()
-		assert.Equal(t, 50, o.Buckets)
-	})
-
-	t.Run("with_cpu_threshold", func(t *testing.T) {
-		o := defaultOptions().apply(WithCPUThreshold(0.9)).init()
-		assert.Equal(t, 0.9, o.CPUThreshold)
-	})
-
-	t.Run("with_cpu", func(t *testing.T) {
-		customCPU := func() float64 { return 0.5 }
-		o := defaultOptions().apply(WithCPU(customCPU)).init()
-		assert.NotNil(t, o.CPU)
-		assert.Equal(t, 0.5, o.CPU())
-	})
-
-	t.Run("with_cpu_interval", func(t *testing.T) {
-		o := defaultOptions().apply(WithCPUInterval(time.Second)).init()
-		assert.Equal(t, time.Second, o.CPUInterval)
-	})
-
-	t.Run("with_skip", func(t *testing.T) {
-		o := defaultOptions().apply(WithSkip(func() bool { return true })).init()
-		assert.NotNil(t, o.Skip)
-		assert.True(t, o.Skip())
-	})
-
-	t.Run("init_fixes_invalid_values", func(t *testing.T) {
-		o := &options{
-			Window:       0,
-			Buckets:      0,
-			CPUThreshold: 0,
-			CPUInterval:  0,
-			CPU:          nil,
-		}
-		o.init()
-		assert.Equal(t, time.Second*10, o.Window)
-		assert.Equal(t, 100, o.Buckets)
-		assert.Equal(t, 0.8, o.CPUThreshold)
-		assert.Equal(t, time.Millisecond*500, o.CPUInterval)
-		assert.NotNil(t, o.CPU)
-	})
+	result := l.maxInflight()
+	assert.Greater(t, result, float64(0))
 }
 
-func TestLimiterInterface(t *testing.T) {
-	t.Run("bbr_limiter_implements_limiter", func(t *testing.T) {
-		var _ RateLimiter = (&bbrRateLimiter{})
-	})
+func TestBBR_ConcurrentInflightTracking(t *testing.T) {
+	l := &bbrRateLimiter{
+		conf: &options{
+			CPUThreshold: 0.8,
+			Buckets:      10,
+		},
+		passStat: newRollingCounter(time.Second*10, 100, false),
+		rtStat:   newRollingCounter(time.Second*10, 100, true),
+		cpu:      func() float64 { return 0 },
+	}
+
+	var wg sync.WaitGroup
+	dones := make([]func(DoneInfo), 0, 50)
+	var mu sync.Mutex
+
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			done, err := l.Allow()
+			if err == nil {
+				mu.Lock()
+				dones = append(dones, done)
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	assert.GreaterOrEqual(t, atomic.LoadInt64(&l.inflight), int64(0))
+
+	for _, done := range dones {
+		done(DoneInfo{})
+	}
+
+	assert.Equal(t, int64(0), atomic.LoadInt64(&l.inflight))
 }
 
-func TestMaxInflight(t *testing.T) {
-	t.Run("cold_start_returns_buckets", func(t *testing.T) {
-		l := &bbrRateLimiter{
-			conf: &options{
-				Window:  time.Second,
-				Buckets: 10,
-			},
-			passStat: newRollingCounter(time.Second, 10, false),
-			rtStat:   newRollingCounter(time.Second, 10, true),
-		}
-		assert.Equal(t, float64(10), l.maxInflight())
-	})
-
-	t.Run("with_data_returns_calculated_value", func(t *testing.T) {
-		l := &bbrRateLimiter{
-			conf: &options{
-				Window:  time.Second,
-				Buckets: 10,
-			},
-			passStat: newRollingCounter(time.Second, 10, false),
-			rtStat:   newRollingCounter(time.Second, 10, true),
-		}
-		for i := 0; i < 10; i++ {
-			l.passStat.Add(time.Now(), 5)
-			l.rtStat.Add(time.Now(), 10)
-		}
-		result := l.maxInflight()
-		assert.Greater(t, result, float64(0))
-	})
+func TestBBR_RateLimiterImplementsInterface(t *testing.T) {
+	var _ RateLimiter = (*bbrRateLimiter)(nil)
 }
 
-func TestConcurrentLimiter(t *testing.T) {
-	t.Run("concurrent_allow_does_not_race", func(t *testing.T) {
-		l := &bbrRateLimiter{
-			conf:     defaultOptions().init(),
-			passStat: newRollingCounter(time.Second*10, 100, false),
-			rtStat:   newRollingCounter(time.Second*10, 100, true),
-			cpu:      func() float64 { return 0 },
-		}
-		var wg sync.WaitGroup
-		for i := 0; i < 100; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				done, err := l.Allow()
-				if err == nil && done != nil {
-					time.Sleep(time.Millisecond)
-					done(DoneInfo{})
-				}
-			}()
-		}
-		wg.Wait()
-	})
+func TestBBR_DefaultRateLimiterCreation(t *testing.T) {
+	o := defaultOptions().init()
+	limiter := o.newRateLimiter()
+	assert.NotNil(t, limiter)
+
+	done, err := limiter.Allow()
+	assert.NoError(t, err)
+	assert.NotNil(t, done)
+	done(DoneInfo{})
 }

@@ -18,17 +18,20 @@ func init() {
 	cpuUsage.Store(0.0)
 }
 
+// defaultCPU 获取默认的CPU使用率
 func defaultCPU() float64 {
 	collectOnce.Do(func() { go collectCPU() })
 	return cpuUsage.Load().(float64)
 }
 
+// setCPUInterval 设置CPU采样间隔
 func setCPUInterval(interval time.Duration) {
 	if interval > 0 {
 		atomic.StoreInt64(&cpuInterval, int64(interval))
 	}
 }
 
+// collectCPU 持续收集CPU使用率
 func collectCPU() {
 	for {
 		interval := time.Duration(atomic.LoadInt64(&cpuInterval))

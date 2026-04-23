@@ -4,40 +4,33 @@ import (
 	"time"
 )
 
-// options 限流器配置选项结构体
-// 用于配置BBR限流算法的各项参数
+// options 限流器配置选项
 type options struct {
 	// Window 统计时间窗口
-	// 用于计算请求通过率和响应时间的时间范围
 	Window time.Duration
 
 	// Buckets 时间窗口内的桶数量
-	// 将时间窗口分割成多个桶进行精细化统计
 	Buckets int
 
-	// CPUThreshold CPU触发阈值 (0.0-1.0)
-	// 当CPU使用率超过此阈值时开始限流
-	// 单位为小数，例如0.8表示80%
+	// CPUThreshold CPU使用率阈值（0.0-1.0）
 	CPUThreshold float64
 
-	// CPU 获取当前CPU使用率的函数
-	// 返回值范围0.0-1.0
+	// CPU 获取CPU使用率的函数
 	CPU func() float64
 
 	// CPUInterval CPU采样间隔
 	CPUInterval time.Duration
 
-	// Skip 跳过限流的判断函数
-	// 返回true时表示跳过限流检查，直接允许请求
+	// Skip 跳过限流的判断函数，返回true时跳过限流
 	Skip func() bool
+
+	rateLimiter RateLimiter
 }
 
 // Option 配置选项函数类型
-// 用于链式调用设置各种配置参数
 type Option func(*options)
 
 // WithWindow 设置统计时间窗口
-// 参数 window: 统计时间窗口长度
 func WithWindow(window time.Duration) Option {
 	return func(o *options) {
 		o.Window = window
@@ -45,23 +38,20 @@ func WithWindow(window time.Duration) Option {
 }
 
 // WithBuckets 设置时间窗口内的桶数量
-// 参数 buckets: 时间桶数量，影响统计精度
 func WithBuckets(buckets int) Option {
 	return func(o *options) {
 		o.Buckets = buckets
 	}
 }
 
-// WithCPUThreshold 设置CPU触发阈值 (0.0-1.0)
-// 参数 threshold: CPU使用率阈值，超过此值开始限流
+// WithCPUThreshold 设置CPU使用率阈值
 func WithCPUThreshold(threshold float64) Option {
 	return func(o *options) {
 		o.CPUThreshold = threshold
 	}
 }
 
-// WithCPU 设置CPU获取函数
-// 参数 cpu: 自定义的CPU使用率获取函数
+// WithCPU 设置CPU使用率获取函数
 func WithCPU(cpu func() float64) Option {
 	return func(o *options) {
 		o.CPU = cpu
@@ -69,7 +59,6 @@ func WithCPU(cpu func() float64) Option {
 }
 
 // WithCPUInterval 设置CPU采样间隔
-// 参数 interval: CPU采样的时间间隔
 func WithCPUInterval(interval time.Duration) Option {
 	return func(o *options) {
 		o.CPUInterval = interval
@@ -77,19 +66,20 @@ func WithCPUInterval(interval time.Duration) Option {
 }
 
 // WithSkip 设置跳过限流的判断函数
-// 参数 skip: 返回true时跳过限流检查，直接允许请求
 func WithSkip(skip func() bool) Option {
 	return func(o *options) {
 		o.Skip = skip
 	}
 }
 
+// withRateLimiter 设置自定义限流器（用于测试）
+func withRateLimiter(limiter RateLimiter) Option {
+	return func(o *options) {
+		o.rateLimiter = limiter
+	}
+}
+
 // defaultOptions 返回默认配置
-// 默认值：
-// - Window: 10秒
-// - Buckets: 100个
-// - CPUThreshold: 0.8 (80%)
-// - CPU: defaultCPU函数
 func defaultOptions() *options {
 	return &options{
 		Window:       time.Second * 10,
@@ -100,8 +90,7 @@ func defaultOptions() *options {
 	}
 }
 
-// init 初始化配置，确保所有参数有效
-// 对未设置或无效的参数使用默认值
+// init 初始化配置参数
 func (o *options) init() *options {
 	if o.Window <= 0 {
 		o.Window = time.Second * 10
@@ -123,7 +112,6 @@ func (o *options) init() *options {
 }
 
 // apply 应用配置选项
-// 按顺序应用所有配置选项函数
 func (o *options) apply(opts ...Option) *options {
 	for _, opt := range opts {
 		opt(o)
@@ -131,9 +119,11 @@ func (o *options) apply(opts ...Option) *options {
 	return o
 }
 
-// newRateLimiter 创建新的限流器实例
-// 根据配置选项初始化BBR限流器
+// newRateLimiter 创建限流器实例
 func (o *options) newRateLimiter() RateLimiter {
+	if o.rateLimiter != nil {
+		return o.rateLimiter
+	}
 	return &bbrRateLimiter{
 		conf:     o,
 		passStat: newRollingCounter(o.Window, o.Buckets, false),

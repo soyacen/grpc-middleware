@@ -5,12 +5,14 @@ import (
 	"time"
 )
 
+// bucket 统计桶
 type bucket struct {
 	requests int64
 	accepts  int64
 }
 
-type window struct {
+// rollingCounter 滑动时间窗口
+type rollingCounter struct {
 	mu         sync.RWMutex
 	buckets    []bucket
 	windowSize time.Duration
@@ -18,8 +20,9 @@ type window struct {
 	lastUpdate time.Time
 }
 
-func newWindow(windowSize time.Duration, buckets int) *window {
-	return &window{
+// newRollingCounter 创建滑动窗口
+func newRollingCounter(windowSize time.Duration, buckets int) *rollingCounter {
+	return &rollingCounter{
 		buckets:    make([]bucket, buckets),
 		windowSize: windowSize,
 		bucketSize: windowSize / time.Duration(buckets),
@@ -27,7 +30,8 @@ func newWindow(windowSize time.Duration, buckets int) *window {
 	}
 }
 
-func (w *window) Add(requests, accepts int64) {
+// Add 添加统计数据
+func (w *rollingCounter) Add(requests, accepts int64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -38,7 +42,8 @@ func (w *window) Add(requests, accepts int64) {
 	w.buckets[idx].accepts += accepts
 }
 
-func (w *window) Summary() (requests, accepts int64) {
+// Summary 获取统计汇总
+func (w *rollingCounter) Summary() (requests, accepts int64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -51,7 +56,8 @@ func (w *window) Summary() (requests, accepts int64) {
 	return
 }
 
-func (w *window) rotate() {
+// rotate 清理过期桶
+func (w *rollingCounter) rotate() {
 	now := time.Now()
 
 	if now.Sub(w.lastUpdate) < w.bucketSize {

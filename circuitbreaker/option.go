@@ -1,30 +1,36 @@
 package circuitbreaker
 
 import (
-	"math/rand"
 	"time"
+
+	"github.com/soyacen/gox/randx"
 )
 
+// options 熔断器配置选项
 type options struct {
 	K       float64
 	Window  time.Duration
 	Buckets int
 }
 
+// Option 配置选项函数类型
 type Option func(*options)
 
+// WithK 设置熔断因子
 func WithK(k float64) Option {
 	return func(o *options) {
 		o.K = k
 	}
 }
 
+// WithWindow 设置统计时间窗口
 func WithWindow(window time.Duration) Option {
 	return func(o *options) {
 		o.Window = window
 	}
 }
 
+// WithBuckets 设置时间窗口内的桶数量
 func WithBuckets(buckets int) Option {
 	return func(o *options) {
 		o.Buckets = buckets
@@ -59,10 +65,14 @@ func (o *options) apply(opts ...Option) *options {
 	return o
 }
 
-func (o *options) newSREBreaker() SREBreaker {
-	return &sreBreaker{
+func (o *options) newCircuitBreaker() CircuitBreaker {
+	rnd, err := randx.NewPCG() // Create a new PCG generator if none available.
+	if err != nil {
+		panic(err) // Panic on failure to initialize due to crypto/rand issues.
+	}
+	return &sreCircuitBreaker{
 		k:      o.K,
-		window: newWindow(o.Window, o.Buckets),
-		rnd:    rndPool.Get().(*rand.Rand),
+		window: newRollingCounter(o.Window, o.Buckets),
+		rnd:    rnd,
 	}
 }

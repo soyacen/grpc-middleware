@@ -5,20 +5,18 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// ErrLimitExceeded 当限流触发时返回的错误
-// 表示请求被限流器拒绝
+// ErrLimitExceeded 限流触发时返回的错误
 var ErrLimitExceeded = status.Error(codes.ResourceExhausted, "ratelimiter: rate limit exceeded")
 
-// DoneInfo 包含请求执行完成的信息
+// DoneInfo 请求完成时传递的信息
 type DoneInfo struct {
-	// Err 是请求处理器返回的错误
+	// Err 请求执行返回的错误
 	Err error
 }
 
-// RateLimiter 定义限流器接口
+// RateLimiter 限流器接口
 type RateLimiter interface {
-	// Allow 检查请求是否被允许
-	// 返回完成回调函数和可能的错误
-	// 如果请求不被允许，返回错误
+	// Allow 检查是否允许执行请求
+	// 返回完成回调函数和错误（如果请求被拒绝）
 	Allow() (done func(DoneInfo), err error)
 }
