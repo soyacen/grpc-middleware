@@ -1,9 +1,7 @@
-package limiter
+package ratelimiter
 
 import (
 	"time"
-
-	"github.com/soyacen/grpc-middleware/internal/container"
 )
 
 // options 限流器配置选项结构体
@@ -133,13 +131,13 @@ func (o *options) apply(opts ...Option) *options {
 	return o
 }
 
-// newLimiter 创建新的限流器实例
+// newRateLimiter 创建新的限流器实例
 // 根据配置选项初始化BBR限流器
-func (o *options) newLimiter() Limiter {
-	return &bbrLimiter{
+func (o *options) newRateLimiter() RateLimiter {
+	return &bbrRateLimiter{
 		conf:     o,
-		passStat: container.NewRollingCounter(o.Window, o.Buckets, false),
-		rtStat:   container.NewRollingCounter(o.Window, o.Buckets, true),
+		passStat: newRollingCounter(o.Window, o.Buckets, false),
+		rtStat:   newRollingCounter(o.Window, o.Buckets, true),
 		cpu:      o.CPU,
 	}
 }

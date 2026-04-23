@@ -1,4 +1,4 @@
-package limiter
+package ratelimiter
 
 import (
 	"context"
@@ -23,7 +23,7 @@ import (
 // 4. 请求完成后调用 done() 回调函数更新统计信息
 func UnaryServerInterceptor(opts ...Option) grpc.UnaryServerInterceptor {
 	o := defaultOptions().apply(opts...).init()
-	limiter := o.newLimiter()
+	limiter := o.newRateLimiter()
 
 	return func(
 		ctx context.Context,
@@ -68,7 +68,7 @@ func UnaryServerInterceptor(opts ...Option) grpc.UnaryServerInterceptor {
 // 4. 流式调用结束时调用 done() 回调函数更新统计信息
 func StreamServerInterceptor(opts ...Option) grpc.StreamServerInterceptor {
 	o := defaultOptions().apply(opts...).init()
-	limiter := o.newLimiter()
+	limiter := o.newRateLimiter()
 
 	return func(
 		srv interface{},

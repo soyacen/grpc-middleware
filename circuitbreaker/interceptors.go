@@ -47,32 +47,26 @@ func UnaryClientInterceptor(opts ...Option) grpc.UnaryClientInterceptor {
 		// 执行实际的gRPC调用
 		err := invoker(ctx, method, req, reply, cc, grpcOpts...)
 
-		// 处理调用结果
 		if err == nil {
-			// 请求成功，记录成功状态
 			breaker.MarkSuccess()
 			return nil
 		}
 
-		// 分析错误类型，判断是否为服务端故障
 		st, ok := status.FromError(err)
 		if ok {
-			// 对于特定的错误码，认为是服务端问题，记录为失败
 			switch st.Code() {
-			case codes.DeadlineExceeded, // 请求超时
-				codes.Internal,          // 内部服务器错误
-				codes.Unavailable,       // 服务不可用
-				codes.ResourceExhausted: // 资源耗尽
-				// 这些错误表明服务端可能过载，记录为失败
+			case codes.DeadlineExceeded,
+				codes.Internal,
+				codes.Unavailable,
+				codes.ResourceExhausted:
 				breaker.MarkFailure()
+			default:
+				breaker.MarkSuccess()
 			}
 		} else {
-			// 非gRPC标准错误也视为失败
-			// Non-gRPC errors are treated as failures
 			breaker.MarkFailure()
 		}
 
-		// 返回原始错误给调用方
 		return err
 	}
 }

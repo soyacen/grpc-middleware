@@ -1,4 +1,4 @@
-package container
+package ratelimiter
 
 import (
 	"math"
@@ -6,10 +6,10 @@ import (
 	"time"
 )
 
-// RollingCounter is a thread-safe sliding window counter that tracks values over a time window.
+// rollingCounter is a thread-safe sliding window counter that tracks values over a time window.
 // It divides the window into fixed-size buckets and supports both sum (additive) and min modes.
 // The counter automatically rotates buckets as time progresses.
-type RollingCounter struct {
+type rollingCounter struct {
 	mu         sync.RWMutex  // protects all fields
 	buckets    []int64       // circular buffer of bucket values
 	window     time.Duration // total time window for the counter
@@ -18,13 +18,13 @@ type RollingCounter struct {
 	isMin      bool          // if true, tracks minimum values; otherwise tracks sums
 }
 
-// NewRollingCounter creates a new RollingCounter.
+// newRollingCounter creates a new RollingCounter.
 // Parameters:
 //   - window: total time window to track
 //   - buckets: number of buckets to divide the window into
 //   - isMin: if true, counter tracks minimum values; otherwise tracks sums
-func NewRollingCounter(window time.Duration, buckets int, isMin bool) *RollingCounter {
-	rc := &RollingCounter{
+func newRollingCounter(window time.Duration, buckets int, isMin bool) *rollingCounter {
+	rc := &rollingCounter{
 		buckets:    make([]int64, buckets),
 		window:     window,
 		bucketDur:  window / time.Duration(buckets),
@@ -42,7 +42,7 @@ func NewRollingCounter(window time.Duration, buckets int, isMin bool) *RollingCo
 // Add adds a value to the counter at the given time.
 // For sum mode (isMin=false), the value is added to the current bucket.
 // For min mode (isMin=true), the minimum of the current value and new value is stored.
-func (c *RollingCounter) Add(now time.Time, val int64) {
+func (c *rollingCounter) Add(now time.Time, val int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -60,7 +60,7 @@ func (c *RollingCounter) Add(now time.Time, val int64) {
 
 // Max returns the maximum value across all buckets at the given time.
 // For min mode, only considers values that have been set (not MaxInt64).
-func (c *RollingCounter) Max(now time.Time) int64 {
+func (c *rollingCounter) Max(now time.Time) int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.rotateAt(now)
@@ -83,7 +83,7 @@ func (c *RollingCounter) Max(now time.Time) int64 {
 // Min returns the minimum value across all buckets at the given time.
 // Only considers values greater than 0 and not MaxInt64.
 // Returns 0 if no valid values exist.
-func (c *RollingCounter) Min(now time.Time) int64 {
+func (c *rollingCounter) Min(now time.Time) int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.rotateAt(now)
@@ -107,7 +107,7 @@ func (c *RollingCounter) Min(now time.Time) int64 {
 
 // rotateAt clears expired buckets based on the elapsed time since last update.
 // Expired buckets are reset to 0 (for sum mode) or MaxInt64 (for min mode).
-func (c *RollingCounter) rotateAt(now time.Time) {
+func (c *rollingCounter) rotateAt(now time.Time) {
 	if now.Sub(c.lastUpdate) < c.bucketDur {
 		return
 	}

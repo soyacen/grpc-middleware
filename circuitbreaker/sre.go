@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+var rndPool = sync.Pool{
+	New: func() interface{} {
+		return rand.New(rand.NewSource(time.Now().UnixNano()))
+	},
+}
+
 // options 熔断器配置选项结构体
 // 用于配置SRE熔断器的核心参数
 type options struct {
@@ -92,15 +98,11 @@ func (o *options) apply(opts ...Option) *options {
 	return o
 }
 
-// newSREBreaker 创建新的SRE熔断器实例
-// 参数:
-//   - k: 熔断因子，建议值1.5-2.0
-//   - windowSize: 统计时间窗口大小
-//   - buckets: 时间窗口分桶数量
 func (o *options) newSREBreaker() SREBreaker {
 	return &sreBreaker{
 		k:      o.K,
 		window: newWindow(o.Window, o.Buckets),
+		rnd:    rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -122,35 +124,25 @@ type SREBreaker interface {
 }
 
 // sreBreaker SRE熔断器的具体实现
-// 使用自适应算法根据历史成功率动态调整请求通过率
 type sreBreaker struct {
-	// k 熔断因子，用于计算拒绝概率的系数
-	// 值越大越容易触发熔断
-	k float64
-
-	// window 滑动时间窗口，用于统计请求数据
-	window *window
+	k          float64
+	window     *window
+	rndMu      sync.Mutex
+	rnd        *rand.Rand
 }
 
-// Allow 判断是否允许执行请求
-// 使用SRE算法计算拒绝概率:
-// P = max(0, (requests - K * accepts) / (requests + 1))
-// 其中requests是总请求数，accepts是成功请求数
 func (b *sreBreaker) Allow() bool {
 	requests, accepts := b.window.Summary()
 
-	// 计算拒绝概率 P = max(0, (requests - K * accepts) / (requests + 1))
-	// 当成功率较高时，P接近0，大部分请求被允许
-	// 当成功率较低时，P增大，更多请求被拒绝
 	p := (float64(requests) - b.k*float64(accepts)) / float64(requests+1)
 
-	// 如果概率小于等于0，直接允许请求
 	if p <= 0 {
 		return true
 	}
 
-	// 以(1-p)的概率允许请求，实现随机节流
-	return rand.Float64() >= p
+	b.rndMu.Lock()
+	defer b.rndMu.Unlock()
+	return b.rnd.Float64() >= p
 }
 
 // MarkSuccess 标记一次成功的请求
@@ -231,12 +223,11 @@ func (w *window) Add(requests, accepts int64) {
 //   - requests: 总请求数
 //   - accepts: 总成功请求数
 func (w *window) Summary() (requests, accepts int64) {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
-	// 遍历所有桶进行数据汇总
-	// 注意：这里为了简化实现，没有严格检查桶是否仍在有效时间窗口内
-	// 在生产环境中，应该验证桶的时间有效性
+	w.rotate()
+
 	for i := range w.buckets {
 		requests += w.buckets[i].requests
 		accepts += w.buckets[i].accepts

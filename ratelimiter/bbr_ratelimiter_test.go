@@ -1,4 +1,4 @@
-package limiter
+package ratelimiter
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/soyacen/grpc-middleware/internal/container"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -16,7 +15,7 @@ import (
 
 func TestBBR_Allow(t *testing.T) {
 	t.Run("initially_allowed", func(t *testing.T) {
-		l := defaultOptions().init().newLimiter()
+		l := defaultOptions().init().newRateLimiter()
 		done, err := l.Allow()
 		assert.NoError(t, err)
 		assert.NotNil(t, done)
@@ -24,14 +23,14 @@ func TestBBR_Allow(t *testing.T) {
 	})
 
 	t.Run("limit_exceeded", func(t *testing.T) {
-		l := &bbrLimiter{
+		l := &bbrRateLimiter{
 			conf: &options{
 				Window:       time.Second,
 				Buckets:      10,
 				CPUThreshold: 0.5,
 			},
-			passStat: container.NewRollingCounter(time.Second, 10, false),
-			rtStat:   container.NewRollingCounter(time.Second, 10, true),
+			passStat: newRollingCounter(time.Second, 10, false),
+			rtStat:   newRollingCounter(time.Second, 10, true),
 			cpu:      func() float64 { return 0.8 },
 		}
 
@@ -50,14 +49,14 @@ func TestBBR_Allow(t *testing.T) {
 	})
 
 	t.Run("cold_start_allows_concurrent_requests", func(t *testing.T) {
-		l := &bbrLimiter{
+		l := &bbrRateLimiter{
 			conf: &options{
 				Window:       time.Second,
 				Buckets:      10,
 				CPUThreshold: 0.5,
 			},
-			passStat: container.NewRollingCounter(time.Second, 10, false),
-			rtStat:   container.NewRollingCounter(time.Second, 10, true),
+			passStat: newRollingCounter(time.Second, 10, false),
+			rtStat:   newRollingCounter(time.Second, 10, true),
 			cpu:      func() float64 { return 0.9 },
 		}
 
@@ -83,10 +82,10 @@ func TestBBR_Allow(t *testing.T) {
 	})
 
 	t.Run("done_callback_updates_stats", func(t *testing.T) {
-		l := &bbrLimiter{
+		l := &bbrRateLimiter{
 			conf:     defaultOptions().init(),
-			passStat: container.NewRollingCounter(time.Second*10, 100, false),
-			rtStat:   container.NewRollingCounter(time.Second*10, 100, true),
+			passStat: newRollingCounter(time.Second*10, 100, false),
+			rtStat:   newRollingCounter(time.Second*10, 100, true),
 			cpu:      func() float64 { return 0 },
 		}
 		done, err := l.Allow()
@@ -99,10 +98,10 @@ func TestBBR_Allow(t *testing.T) {
 	})
 
 	t.Run("done_callback_skips_stats_on_error", func(t *testing.T) {
-		l := &bbrLimiter{
+		l := &bbrRateLimiter{
 			conf:     defaultOptions().init(),
-			passStat: container.NewRollingCounter(time.Second*10, 100, false),
-			rtStat:   container.NewRollingCounter(time.Second*10, 100, true),
+			passStat: newRollingCounter(time.Second*10, 100, false),
+			rtStat:   newRollingCounter(time.Second*10, 100, true),
 			cpu:      func() float64 { return 0 },
 		}
 		initialMax := l.passStat.Max(time.Now())
@@ -114,26 +113,26 @@ func TestBBR_Allow(t *testing.T) {
 	})
 
 	t.Run("shouldDrop_cpu_below_threshold", func(t *testing.T) {
-		l := &bbrLimiter{
+		l := &bbrRateLimiter{
 			conf: &options{
 				CPUThreshold: 0.8,
 				Buckets:      10,
 			},
-			passStat: container.NewRollingCounter(time.Second, 10, false),
-			rtStat:   container.NewRollingCounter(time.Second, 10, true),
+			passStat: newRollingCounter(time.Second, 10, false),
+			rtStat:   newRollingCounter(time.Second, 10, true),
 			cpu:      func() float64 { return 0.1 },
 		}
 		assert.False(t, l.shouldDrop())
 	})
 
 	t.Run("shouldDrop_inflight_one_always_allowed", func(t *testing.T) {
-		l := &bbrLimiter{
+		l := &bbrRateLimiter{
 			conf: &options{
 				CPUThreshold: 0.5,
 				Buckets:      10,
 			},
-			passStat: container.NewRollingCounter(time.Second, 10, false),
-			rtStat:   container.NewRollingCounter(time.Second, 10, true),
+			passStat: newRollingCounter(time.Second, 10, false),
+			rtStat:   newRollingCounter(time.Second, 10, true),
 			cpu:      func() float64 { return 1.0 },
 			inflight: 1,
 		}
@@ -180,7 +179,7 @@ func TestInterceptors(t *testing.T) {
 	})
 
 	t.Run("unary_panic_recovery_calls_done", func(t *testing.T) {
-		l := defaultOptions().init().newLimiter()
+		l := defaultOptions().init().newRateLimiter()
 		done, _ := l.Allow()
 		assert.NotNil(t, done)
 
@@ -290,31 +289,31 @@ func TestOptions(t *testing.T) {
 
 func TestLimiterInterface(t *testing.T) {
 	t.Run("bbr_limiter_implements_limiter", func(t *testing.T) {
-		var _ Limiter = (&bbrLimiter{})
+		var _ RateLimiter = (&bbrRateLimiter{})
 	})
 }
 
 func TestMaxInflight(t *testing.T) {
 	t.Run("cold_start_returns_buckets", func(t *testing.T) {
-		l := &bbrLimiter{
+		l := &bbrRateLimiter{
 			conf: &options{
 				Window:  time.Second,
 				Buckets: 10,
 			},
-			passStat: container.NewRollingCounter(time.Second, 10, false),
-			rtStat:   container.NewRollingCounter(time.Second, 10, true),
+			passStat: newRollingCounter(time.Second, 10, false),
+			rtStat:   newRollingCounter(time.Second, 10, true),
 		}
 		assert.Equal(t, float64(10), l.maxInflight())
 	})
 
 	t.Run("with_data_returns_calculated_value", func(t *testing.T) {
-		l := &bbrLimiter{
+		l := &bbrRateLimiter{
 			conf: &options{
 				Window:  time.Second,
 				Buckets: 10,
 			},
-			passStat: container.NewRollingCounter(time.Second, 10, false),
-			rtStat:   container.NewRollingCounter(time.Second, 10, true),
+			passStat: newRollingCounter(time.Second, 10, false),
+			rtStat:   newRollingCounter(time.Second, 10, true),
 		}
 		for i := 0; i < 10; i++ {
 			l.passStat.Add(time.Now(), 5)
@@ -327,10 +326,10 @@ func TestMaxInflight(t *testing.T) {
 
 func TestConcurrentLimiter(t *testing.T) {
 	t.Run("concurrent_allow_does_not_race", func(t *testing.T) {
-		l := &bbrLimiter{
+		l := &bbrRateLimiter{
 			conf:     defaultOptions().init(),
-			passStat: container.NewRollingCounter(time.Second*10, 100, false),
-			rtStat:   container.NewRollingCounter(time.Second*10, 100, true),
+			passStat: newRollingCounter(time.Second*10, 100, false),
+			rtStat:   newRollingCounter(time.Second*10, 100, true),
 			cpu:      func() float64 { return 0 },
 		}
 		var wg sync.WaitGroup

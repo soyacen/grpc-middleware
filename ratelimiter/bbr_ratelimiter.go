@@ -1,35 +1,13 @@
-package limiter
+package ratelimiter
 
 import (
 	"sync/atomic"
 	"time"
-
-	"github.com/soyacen/grpc-middleware/internal/container"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
-// ErrLimitExceeded 当限流触发时返回的错误
-// 表示请求被限流器拒绝
-var ErrLimitExceeded = status.Error(codes.ResourceExhausted, "limiter: rate limit exceeded")
-
-// DoneInfo 包含请求执行完成的信息
-type DoneInfo struct {
-	// Err 是请求处理器返回的错误
-	Err error
-}
-
-// Limiter 定义限流器接口
-type Limiter interface {
-	// Allow 检查请求是否被允许
-	// 返回完成回调函数和可能的错误
-	// 如果请求不被允许，返回错误
-	Allow() (done func(DoneInfo), err error)
-}
-
-// bbrLimiter BBR限流器的具体实现
+// bbrRateLimiter BBR限流器的具体实现
 // 基于字节跳动BBR算法实现自适应限流
-type bbrLimiter struct {
+type bbrRateLimiter struct {
 	// conf 配置选项引用
 	conf *options
 
@@ -37,8 +15,8 @@ type bbrLimiter struct {
 	inflight int64
 
 	// metrics for the BBR algorithm
-	passStat *container.RollingCounter // 通过请求数统计
-	rtStat   *container.RollingCounter // 响应时间统计
+	passStat *rollingCounter // 通过请求数统计
+	rtStat   *rollingCounter // 响应时间统计
 
 	// lastDrop 上次丢弃请求的时间
 	lastDrop atomic.Pointer[time.Time]
@@ -49,7 +27,7 @@ type bbrLimiter struct {
 
 // Allow 检查请求是否允许执行
 // 返回完成回调函数和可能的错误
-func (l *bbrLimiter) Allow() (func(DoneInfo), error) {
+func (l *bbrRateLimiter) Allow() (func(DoneInfo), error) {
 	if l.shouldDrop() {
 		return nil, ErrLimitExceeded
 	}
@@ -77,7 +55,7 @@ func (l *bbrLimiter) Allow() (func(DoneInfo), error) {
 
 // shouldDrop 判断是否应该丢弃请求
 // 实现BBR算法的核心决策逻辑
-func (l *bbrLimiter) shouldDrop() bool {
+func (l *bbrRateLimiter) shouldDrop() bool {
 	// 检查CPU使用率
 	cpu := l.cpu()
 	if cpu < l.conf.CPUThreshold {
@@ -115,7 +93,7 @@ func (l *bbrLimiter) shouldDrop() bool {
 
 // maxInflight 计算最大允许并发请求数
 // 基于BBR算法：max_inflight = max_pass * min_rt
-func (l *bbrLimiter) maxInflight() float64 {
+func (l *bbrRateLimiter) maxInflight() float64 {
 	now := time.Now()
 	maxPass := l.passStat.Max(now)
 	minRT := l.rtStat.Min(now)
