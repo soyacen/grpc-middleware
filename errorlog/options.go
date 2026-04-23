@@ -11,10 +11,11 @@ type options struct {
 }
 
 // apply 应用所有配置选项
-func (o *options) apply(opts ...Option) {
+func (o *options) apply(opts ...Option) *options {
 	for _, opt := range opts {
 		opt(o)
 	}
+	return o
 }
 
 // Option 表示错误日志的配置选项函数

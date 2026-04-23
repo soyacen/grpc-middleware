@@ -149,8 +149,10 @@ func logError(ctx context.Context, rpcType string, system string, method string,
 		slog.String("rpc_type", rpcType),
 		slog.String("system", system),
 		slog.String("method", method),
-		slog.String("error", err.Error()),
 		slog.String("code", st.Code().String()),
+	}
+	if err != nil {
+		attrs = append(attrs, slog.String("error", err.Error()))
 	}
 
 	// 如果配置为打印请求，添加请求内容

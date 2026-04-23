@@ -1,5 +1,7 @@
 # circuitbreaker KNOWLEDGE BASE
 
+**Generated:** 2026-04-23
+
 ## OVERVIEW
 
 Client-side Google SRE circuit breaker with adaptive throttling via probabilistic rejection. No server interceptors.
