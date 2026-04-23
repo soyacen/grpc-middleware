@@ -12,7 +12,7 @@ import (
 
 // ErrLimitExceeded 当限流触发时返回的错误
 // 表示请求被限流器拒绝
-var ErrLimitExceeded = status.Error(codes.ResourceExhausted, "ratelimitgrpc: rate limit exceeded")
+var ErrLimitExceeded = status.Error(codes.ResourceExhausted, "limiter: rate limit exceeded")
 
 // options 限流器配置选项结构体
 // 用于配置BBR限流算法的各项参数
@@ -36,6 +36,10 @@ type options struct {
 
 	// CPUInterval CPU采样间隔
 	CPUInterval time.Duration
+
+	// Skip 跳过限流的判断函数
+	// 返回true时表示跳过限流检查，直接允许请求
+	Skip func() bool
 }
 
 // Option 配置选项函数类型
@@ -79,6 +83,14 @@ func WithCPU(cpu func() float64) Option {
 func WithCPUInterval(interval time.Duration) Option {
 	return func(o *options) {
 		o.CPUInterval = interval
+	}
+}
+
+// WithSkip 设置跳过限流的判断函数
+// 参数 skip: 返回true时跳过限流检查，直接允许请求
+func WithSkip(skip func() bool) Option {
+	return func(o *options) {
+		o.Skip = skip
 	}
 }
 
@@ -157,9 +169,6 @@ type Limiter interface {
 // bbrLimiter BBR限流器的具体实现
 // 基于字节跳动BBR算法实现自适应限流
 type bbrLimiter struct {
-	// mu 读写锁，保护并发访问
-	mu sync.RWMutex
-
 	// conf 配置选项引用
 	conf *options
 
@@ -167,7 +176,6 @@ type bbrLimiter struct {
 	inflight int64
 
 	// metrics for the BBR algorithm
-	// BBR算法的指标统计
 	passStat *rollingCounter // 通过请求数统计
 	rtStat   *rollingCounter // 响应时间统计
 
@@ -175,14 +183,12 @@ type bbrLimiter struct {
 	lastDrop atomic.Pointer[time.Time]
 
 	// cpu 获取当前CPU使用率的函数
-	// 返回值范围0.0-1.0
 	cpu func() float64
 }
 
 // Allow 检查请求是否允许执行
 // 返回完成回调函数和可能的错误
 func (l *bbrLimiter) Allow() (func(DoneInfo), error) {
-	// 检查是否应该丢弃请求
 	if l.shouldDrop() {
 		return nil, ErrLimitExceeded
 	}
@@ -248,19 +254,12 @@ func (l *bbrLimiter) shouldDrop() bool {
 // maxInflight 计算最大允许并发请求数
 // 基于BBR算法：max_inflight = max_pass * min_rt
 func (l *bbrLimiter) maxInflight() float64 {
-	// max_pass * min_rt
-	// 使用窗口内的最大通过数和最小平均响应时间
-
-	// 获取窗口内的最大通过请求数
 	maxPass := l.passStat.Max()
-
-	// 获取窗口内的最小响应时间
 	minRT := l.rtStat.Min()
 
-	// 将桶统计转换为每秒统计
-	// maxPass是每个桶的值，需要转换为窗口总量或按比例缩放
-	// 实际计算：maxPass * minRt / bucketDurationInSeconds
-	// minRT单位是毫秒
+	if maxPass <= 0 || minRT <= 0 {
+		return float64(l.conf.Buckets)
+	}
 
 	bucketDuration := float64(l.conf.Window) / float64(l.conf.Buckets) / float64(time.Second)
 	return float64(maxPass) * float64(minRT) / 1000.0 / bucketDuration
@@ -310,16 +309,14 @@ func newRollingCounter(window time.Duration, buckets int, isMin bool) *rollingCo
 }
 
 // Add 向统计器中添加数值
-// 参数 val: 要添加的数值
 func (c *rollingCounter) Add(val int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// 执行桶轮转
-	c.rotate()
+	now := time.Now()
+	c.rotateAt(now)
 
-	// 计算当前桶索引并添加数值
-	idx := (time.Now().UnixNano() / int64(c.bucketDur)) % int64(len(c.buckets))
+	idx := (now.UnixNano() / int64(c.bucketDur)) % int64(len(c.buckets))
 	if c.isMin {
 		if val < c.buckets[idx] {
 			c.buckets[idx] = val
@@ -329,29 +326,19 @@ func (c *rollingCounter) Add(val int64) {
 	}
 }
 
-// rotate 执行桶轮转操作
-// 清理过期的时间桶数据
-func (c *rollingCounter) rotate() {
-	now := time.Now()
-
-	// 如果距离上次更新不足一个桶的时间间隔，则无需轮转
+// rotateAt 执行桶轮转操作，使用给定的时间点
+func (c *rollingCounter) rotateAt(now time.Time) {
 	if now.Sub(c.lastUpdate) < c.bucketDur {
 		return
 	}
 
-	// 计算需要清空的桶数量
 	elapsed := now.Sub(c.lastUpdate)
 	numToClear := int(elapsed / c.bucketDur)
-
-	// 限制清空数量不超过桶总数
 	if numToClear > len(c.buckets) {
 		numToClear = len(c.buckets)
 	}
 
-	// 计算上次更新时的桶索引
 	lastIdx := (c.lastUpdate.UnixNano() / int64(c.bucketDur)) % int64(len(c.buckets))
-
-	// 清空相应数量的旧桶
 	for i := 1; i <= numToClear; i++ {
 		idx := (lastIdx + int64(i)) % int64(len(c.buckets))
 		if c.isMin {
@@ -361,15 +348,14 @@ func (c *rollingCounter) rotate() {
 		}
 	}
 
-	// 更新最后更新时间
 	c.lastUpdate = now
 }
 
 // Max 获取所有桶中的最大值
-// 用于获取窗口内的峰值统计
 func (c *rollingCounter) Max() int64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.rotateAt(time.Now())
 
 	var max int64
 	for _, v := range c.buckets {
@@ -387,10 +373,10 @@ func (c *rollingCounter) Max() int64 {
 }
 
 // Min 获取所有桶中的最小正值
-// 用于获取窗口内的最佳性能指标
 func (c *rollingCounter) Min() int64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.rotateAt(time.Now())
 
 	var min int64 = math.MaxInt64
 	var found bool
@@ -403,9 +389,8 @@ func (c *rollingCounter) Min() int64 {
 		}
 	}
 
-	// 如果没有找到正值，返回1避免除零错误
 	if !found {
-		return 1 // Avoid division by zero or nonsensical results
+		return 0
 	}
 	return min
 }

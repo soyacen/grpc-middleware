@@ -1,6 +1,7 @@
 package limiter
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,4 +22,12 @@ func TestDefaultCPU(t *testing.T) {
 func TestCPUInterval(t *testing.T) {
 	opts := defaultOptions().apply(WithCPUInterval(time.Millisecond * 100)).init()
 	assert.Equal(t, time.Millisecond*100, opts.CPUInterval)
+}
+
+func TestSetCPUInterval(t *testing.T) {
+	setCPUInterval(time.Millisecond * 200)
+	assert.Equal(t, int64(time.Millisecond*200), atomic.LoadInt64(&cpuInterval))
+
+	setCPUInterval(0)
+	assert.Equal(t, int64(time.Millisecond*200), atomic.LoadInt64(&cpuInterval))
 }
