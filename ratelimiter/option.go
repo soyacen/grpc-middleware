@@ -1,6 +1,7 @@
 package ratelimiter
 
 import (
+	"context"
 	"time"
 )
 
@@ -22,7 +23,7 @@ type options struct {
 	CPUInterval time.Duration
 
 	// Skip 跳过限流的判断函数，返回true时跳过限流
-	Skip func() bool
+	Skip func(ctx context.Context, fullMethod string) bool
 
 	rateLimiter RateLimiter
 }
@@ -66,7 +67,7 @@ func WithCPUInterval(interval time.Duration) Option {
 }
 
 // WithSkip 设置跳过限流的判断函数
-func WithSkip(skip func() bool) Option {
+func WithSkip(skip func(ctx context.Context, fullMethod string) bool) Option {
 	return func(o *options) {
 		o.Skip = skip
 	}

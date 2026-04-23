@@ -118,7 +118,7 @@ func TestUnaryServerInterceptor_SkipTrue(t *testing.T) {
 			handler := &mockUnaryHandler{resp: "resp"}
 			interceptor := UnaryServerInterceptor(
 				withRateLimiter(limiter),
-				WithSkip(func() bool { return true }),
+				WithSkip(func(ctx context.Context, fullMethod string) bool { return true }),
 			)
 			resp, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{}, handler.handle)
 
@@ -149,7 +149,7 @@ func TestUnaryServerInterceptor_SkipFalse(t *testing.T) {
 			handler := &mockUnaryHandler{resp: "resp"}
 			interceptor := UnaryServerInterceptor(
 				withRateLimiter(limiter),
-				WithSkip(func() bool { return false }),
+				WithSkip(func(ctx context.Context, fullMethod string) bool { return false }),
 			)
 			resp, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{}, handler.handle)
 
@@ -387,7 +387,7 @@ func TestStreamServerInterceptor_SkipTrue(t *testing.T) {
 			handler := &mockStreamHandler{}
 			interceptor := StreamServerInterceptor(
 				withRateLimiter(limiter),
-				WithSkip(func() bool { return true }),
+				WithSkip(func(ctx context.Context, fullMethod string) bool { return true }),
 			)
 			stream := &mockServerStream{}
 			err := interceptor(nil, stream, &grpc.StreamServerInfo{}, handler.handle)
@@ -418,7 +418,7 @@ func TestStreamServerInterceptor_SkipFalse(t *testing.T) {
 			handler := &mockStreamHandler{}
 			interceptor := StreamServerInterceptor(
 				withRateLimiter(limiter),
-				WithSkip(func() bool { return false }),
+				WithSkip(func(ctx context.Context, fullMethod string) bool { return false }),
 			)
 			stream := &mockServerStream{}
 			err := interceptor(nil, stream, &grpc.StreamServerInfo{}, handler.handle)

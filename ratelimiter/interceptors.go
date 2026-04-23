@@ -18,7 +18,7 @@ func UnaryServerInterceptor(opts ...Option) grpc.UnaryServerInterceptor {
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
 	) (interface{}, error) {
-		if o.Skip != nil && o.Skip() {
+		if o.Skip != nil && o.Skip(ctx, info.FullMethod) {
 			return handler(ctx, req)
 		}
 
@@ -50,7 +50,7 @@ func StreamServerInterceptor(opts ...Option) grpc.StreamServerInterceptor {
 		info *grpc.StreamServerInfo,
 		handler grpc.StreamHandler,
 	) error {
-		if o.Skip != nil && o.Skip() {
+		if o.Skip != nil && o.Skip(stream.Context(), info.FullMethod) {
 			return handler(srv, stream)
 		}
 

@@ -1,6 +1,7 @@
 package ratelimiter
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -239,11 +240,11 @@ func TestWithCPUInterval(t *testing.T) {
 func TestWithSkip(t *testing.T) {
 	tests := []struct {
 		name     string
-		skip     func() bool
+		skip     func(ctx context.Context, fullMethod string) bool
 		expected bool
 	}{
-		{"skip_true", func() bool { return true }, true},
-		{"skip_false", func() bool { return false }, false},
+		{"skip_true", func(ctx context.Context, fullMethod string) bool { return true }, true},
+		{"skip_false", func(ctx context.Context, fullMethod string) bool { return false }, false},
 	}
 
 	for _, tt := range tests {
@@ -253,7 +254,7 @@ func TestWithSkip(t *testing.T) {
 			if o.Skip == nil {
 				t.Fatal("Skip function should not be nil")
 			}
-			if got := o.Skip(); got != tt.expected {
+			if got := o.Skip(context.Background(), "/test.Service/Method"); got != tt.expected {
 				t.Errorf("Skip() = %v, want %v", got, tt.expected)
 			}
 		})
@@ -270,8 +271,8 @@ func TestWithSkip_True(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			o := &options{}
-			WithSkip(func() bool { return true })(o)
-			if o.Skip == nil || !o.Skip() {
+			WithSkip(func(ctx context.Context, fullMethod string) bool { return true })(o)
+			if o.Skip == nil || !o.Skip(context.Background(), "/test.Service/Method") {
 				t.Error("Skip should return true")
 			}
 		})
@@ -288,8 +289,8 @@ func TestWithSkip_False(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			o := &options{}
-			WithSkip(func() bool { return false })(o)
-			if o.Skip == nil || o.Skip() {
+			WithSkip(func(ctx context.Context, fullMethod string) bool { return false })(o)
+			if o.Skip == nil || o.Skip(context.Background(), "/test.Service/Method") {
 				t.Error("Skip should return false")
 			}
 		})
@@ -299,7 +300,7 @@ func TestWithSkip_False(t *testing.T) {
 func TestWithSkip_Nil(t *testing.T) {
 	tests := []struct {
 		name string
-		skip func() bool
+		skip func(ctx context.Context, fullMethod string) bool
 	}{
 		{"nil_skip", nil},
 	}
