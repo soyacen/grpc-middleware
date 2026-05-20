@@ -5,8 +5,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestPercent(t *testing.T) {
+	percentages, err := cpu.Percent(30*time.Second, false)
+	if err != nil {
+		t.Fatalf("failed to cpu Percent, %s", err)
+	}
+	t.Log(percentages)
+}
 
 func TestDefaultCPU(t *testing.T) {
 	usage := defaultCPU()
